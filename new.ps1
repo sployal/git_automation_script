@@ -18,7 +18,8 @@ if ($args.Count -gt 0 -and $args[0] -eq "--help") {
         "11. history    → View commit history with details",
         "12. tokeninfo  → Display token permissions and scopes",
         "13. setup      → Configure GitHub tokens securely",
-        "14. branch     → Manage branches (list/create/switch/delete)"
+        "14. branch     → Manage branches (list/create/switch/delete)",
+        "15. remotem    → Manage remote for current repository"
     )
 
     foreach ($line in $helpItems) {
@@ -57,6 +58,80 @@ function Get-GitHubToken {
     }
     
     return $token
+}
+
+# Function to generate GitHub SSH keys and configure SSH
+function Generate-GitHubSSHKeysAndConfig {
+    $sshDir = "$env:USERPROFILE\.ssh"
+    $configPath = "$sshDir\config"
+    $configEntries = @()
+
+    # 🔧 Ensure .ssh directory exists
+    if (-not (Test-Path $sshDir)) {
+        Write-Host "🔧 Creating .ssh directory..." -ForegroundColor Yellow
+        New-Item -ItemType Directory -Path $sshDir | Out-Null
+    }
+
+    # 🔍 Check if ssh-keygen is available
+    if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
+        Write-Host "❌ 'ssh-keygen' not found. Please install OpenSSH Client or restart PowerShell." -ForegroundColor Red
+        return
+    }
+
+    # 🔢 Prompt for number of accounts (max 3)
+    do {
+        $count = Read-Host "How many GitHub accounts do you want to set up? (Max: 3)" | ForEach-Object { [int]$_ }
+        if ($count -gt 3) {
+            Write-Host "⚠️ You can only set up a maximum of 3 accounts at once." -ForegroundColor DarkYellow
+        }
+    } while ($count -gt 3 -or $count -lt 1)
+
+    for ($i = 1; $i -le $count; $i++) {
+        Write-Host "`n🧑‍💻 Account #$i setup" -ForegroundColor Cyan
+        $accountType = Read-Host "Enter account type (e.g., personal, work, freelance)"
+        $email = Read-Host "Enter email for '$accountType' account"
+        $alias = "github-" + ($accountType.ToLower().Trim() -replace '[^a-z0-9]', '_')
+        $keyName = "id_ed25519_$alias"
+        $keyPath = "$sshDir\$keyName"
+        $pubKeyPath = "$keyPath.pub"
+
+        # 🚀 Generate SSH key
+        if (Test-Path $keyPath) {
+            Write-Host "⚠️ Key '$keyName' already exists. Skipping generation." -ForegroundColor DarkYellow
+        } else {
+            Write-Host "🔐 Generating SSH key for '$accountType'..." -ForegroundColor Cyan
+            ssh-keygen -t ed25519 -C "$email" -f "$keyPath" | Out-Null
+
+            if (Test-Path $keyPath) {
+                Write-Host "✅ Key generated: $keyPath" -ForegroundColor Green
+            } else {
+                Write-Host "❌ Key generation failed for '$accountType'." -ForegroundColor Red
+                continue
+            }
+        }
+
+        # 📋 Show public key
+        if (Test-Path $pubKeyPath) {
+            Write-Host "`n📋 Public key for '$accountType' (copy to GitHub):" -ForegroundColor Magenta
+            Get-Content $pubKeyPath
+        }
+
+        # 🧩 Add SSH config entry
+        $entry = @"
+# $accountType GitHub
+Host $alias
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/$keyName
+  IdentitiesOnly yes
+"@
+        $configEntries += $entry
+    }
+
+    # 🛠️ Write SSH config file
+    Write-Host "`n⚙️ Writing SSH config file..." -ForegroundColor Yellow
+    $configEntries | Set-Content -Path $configPath -Encoding UTF8
+    Write-Host "✅ SSH config saved to: $configPath" -ForegroundColor Green
 }
 
 # Function to setup GitHub tokens securely
@@ -193,7 +268,7 @@ if ($args.Count -gt 0 -and $args[0] -eq "setup") {
 }
 
 # Define valid actions
-$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch")
+$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch", "remotem")
 
 # Function to validate yes/no input
 function Get-ValidYesNo {
@@ -513,6 +588,35 @@ function Invoke-GitCommit {
                 Write-Host "✅ Changes pushed successfully!"
             }
         }
+
+        # Post-commit actions
+        Write-Host "`n📂 Post-commit actions:"
+        Write-Host "   1) Open repo in File Explorer"
+        Write-Host "   2) Open repo in VS Code"
+        Write-Host "   3) Not now"
+        do {
+            $postCommitChoice = Read-Host "Enter your choice (1-3)"
+            switch ($postCommitChoice) {
+                "1" {
+                    Write-Host "🔍 Opening File Explorer..."
+                    Start-Process "explorer.exe" -ArgumentList "."
+                    $validPostChoice = $true
+                }
+                "2" {
+                    Write-Host "💻 Opening VS Code..."
+                    Start-Process "code" -ArgumentList "."
+                    $validPostChoice = $true
+                }
+                "3" {
+                    Write-Host "⏭️ Skipping post-commit actions."
+                    $validPostChoice = $true
+                }
+                default {
+                    Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
+                    $validPostChoice = $false
+                }
+            }
+        } while (-not $validPostChoice)
         
     } catch {
         Write-Host "❌ Commit failed: $($_.Exception.Message)"
@@ -788,7 +892,32 @@ if ($action -in @("clone", "push", "addremote", "delremote", "remotelist", "toke
 switch ($action) {
 
     "setup" {
-        Set-GitHubTokens
+        Write-Host "`n🔧 Setup Options"
+        Write-Host "──────────────────────────────────────────────"
+        Write-Host "   1) SSH Configuration (Generate SSH keys for GitHub accounts)"
+        Write-Host "   2) GitHub Token Setup (Configure Personal Access Tokens)"
+        
+        do {
+            $setupChoice = Read-Host "`nEnter your choice (1-2)"
+            switch ($setupChoice) {
+                "1" {
+                    Write-Host "`n🔐 SSH Configuration Setup"
+                    Write-Host "──────────────────────────────────────────────"
+                    Generate-GitHubSSHKeysAndConfig
+                    $validSetupChoice = $true
+                }
+                "2" {
+                    Write-Host "`n🔑 GitHub Token Setup"
+                    Write-Host "──────────────────────────────────────────────"
+                    Set-GitHubTokens
+                    $validSetupChoice = $true
+                }
+                default {
+                    Write-Host "❌ Invalid choice. Please enter 1 or 2."
+                    $validSetupChoice = $false
+                }
+            }
+        } while (-not $validSetupChoice)
     }
 
     "clone" {
@@ -809,6 +938,35 @@ switch ($action) {
                 Write-Host "  → Remote: $remoteUrl"
                 Write-Host "  → Git user.name: $gitName"
                 Write-Host "  → Git user.email: $gitEmail"
+
+                # Post-clone actions
+                Write-Host "`n📂 Post-clone actions:"
+                Write-Host "   1) Open repo in File Explorer"
+                Write-Host "   2) Open repo in VS Code"
+                Write-Host "   3) Not now"
+                do {
+                    $postCloneChoice = Read-Host "Enter your choice (1-3)"
+                    switch ($postCloneChoice) {
+                        "1" {
+                            Write-Host "🔍 Opening File Explorer..."
+                            Start-Process "explorer.exe" -ArgumentList "."
+                            $validPostCloneChoice = $true
+                        }
+                        "2" {
+                            Write-Host "💻 Opening VS Code..."
+                            Start-Process "code" -ArgumentList "."
+                            $validPostCloneChoice = $true
+                        }
+                        "3" {
+                            Write-Host "⏭️ Skipping post-clone actions."
+                            $validPostCloneChoice = $true
+                        }
+                        default {
+                            Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
+                            $validPostCloneChoice = $false
+                        }
+                    }
+                } while (-not $validPostCloneChoice)
             } else {
                 Write-Host "`n⚠️ Clone succeeded but folder '$repoName' not found."
             }
@@ -1154,6 +1312,35 @@ switch ($action) {
                         Write-Host "  → Git user.name: $gitName"
                         Write-Host "  → Git user.email: $gitEmail"
                         Write-Host "  → Current directory: .\$repoName"
+
+                        # Post-clone actions
+                        Write-Host "`n📂 Post-clone actions:"
+                        Write-Host "   1) Open repo in File Explorer"
+                        Write-Host "   2) Open repo in VS Code"
+                        Write-Host "   3) Not now"
+                        do {
+                            $postCloneChoice = Read-Host "Enter your choice (1-3)"
+                            switch ($postCloneChoice) {
+                                "1" {
+                                    Write-Host "🔍 Opening File Explorer..."
+                                    Start-Process "explorer.exe" -ArgumentList "."
+                                    $validPostCloneChoice = $true
+                                }
+                                "2" {
+                                    Write-Host "💻 Opening VS Code..."
+                                    Start-Process "code" -ArgumentList "."
+                                    $validPostCloneChoice = $true
+                                }
+                                "3" {
+                                    Write-Host "⏭️ Skipping post-clone actions."
+                                    $validPostCloneChoice = $true
+                                }
+                                default {
+                                    Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
+                                    $validPostCloneChoice = $false
+                                }
+                            }
+                        } while (-not $validPostCloneChoice)
                     } else {
                         Write-Host "`n⚠️ Clone succeeded but folder '$repoName' not found."
                     }
@@ -1380,8 +1567,80 @@ switch ($action) {
         } while (-not $validBranchChoice)
     }
 
+    "remotem" {
+        # Ensure we are inside a git repo
+        if (-not (Test-Path ".git")) {
+            Write-Host "`n❌ Not a Git repository. Initialize with 'git init' first."
+            return
+        }
+
+        Write-Host "`n🔗 Remote Manager"
+        Write-Host "──────────────────────────────────────────────"
+
+        # Show current remote and upstream info
+        $currentBranch = Get-CurrentGitBranch
+        if ($currentBranch) { Write-Host "🌿 Current Branch: $currentBranch" }
+        $existingUrl = git config --get remote.origin.url 2>$null
+        if ($existingUrl) {
+            Write-Host "🔗 Current remote 'origin': $existingUrl"
+            $upstream = git rev-parse --abbrev-ref "$currentBranch@{upstream}" 2>$null
+            if ($upstream) { Write-Host "   → Upstream: $upstream" }
+
+            Write-Host "`nOptions:"
+            Write-Host "  u) Update remote URL (switch to another repo)"
+            Write-Host "  r) Remove remote and add a new one"
+
+            do {
+                $remoteChoice = Read-Host "Enter choice (u/r)"
+                switch ($remoteChoice.ToLower()) {
+                    "u" {
+                        $account = Get-ValidAccount
+                        $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
+                        $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                        $newRepo    = Read-Host "Enter the NEW repository name"
+                        if ([string]::IsNullOrWhiteSpace($newRepo)) { Write-Host "❌ Repo name cannot be empty."; $valid = $false; break }
+                        $newUrl = "git@${sshAlias}:${githubUser}/${newRepo}.git"
+                        git remote set-url origin $newUrl
+                        Write-Host "✅ Remote updated: origin → $newUrl"
+                        $valid = $true
+                    }
+                    "r" {
+                        git remote remove origin 2>$null
+                        Write-Host "✅ Removed remote 'origin'."
+                        $account = Get-ValidAccount
+                        $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
+                        $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                        $repoName   = Read-Host "Enter the repository name to add as origin"
+                        if ([string]::IsNullOrWhiteSpace($repoName)) { Write-Host "❌ Repo name cannot be empty."; $valid = $false; break }
+                        $newUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
+                        git remote add origin $newUrl
+                        Write-Host "✅ Added remote 'origin': $newUrl"
+                        $valid = $true
+                    }
+                    default {
+                        Write-Host "❌ Invalid choice. Enter 'u' to update or 'r' to remove & add."
+                        $valid = $false
+                    }
+                }
+            } while (-not $valid)
+        } else {
+            Write-Host "🔍 No remote found for this repository."
+            $shouldAdd = Get-ValidYesNo "Add a remote now?" "y"
+            if ($shouldAdd) {
+                $account = Get-ValidAccount
+                $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
+                $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                $repoName   = Read-Host "Enter the repository name to add as origin"
+                if ([string]::IsNullOrWhiteSpace($repoName)) { Write-Host "❌ Repo name cannot be empty."; return }
+                $newUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
+                git remote add origin $newUrl
+                Write-Host "✅ Added remote 'origin': $newUrl"
+            }
+        }
+    }
+
     default {
         Write-Host "`n❌ Invalid action. Please enter one of the following:"
-        Write-Host "   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup / branch"
+        Write-Host "   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup / branch / remotem"
     }
 }
