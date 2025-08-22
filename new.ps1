@@ -275,6 +275,12 @@ function Invoke-GitCommit {
     Write-Host "`n📝 Git Add & Commit"
     Write-Host "──────────────────────────────────────────────"
 
+    # Show current branch
+    $currentBranchInfo = Get-CurrentGitBranch
+    if ($currentBranchInfo) {
+        Write-Host "🌿 Current Branch: $currentBranchInfo"
+    }
+
     # Show current status
     Write-Host "📊 Current repository status:"
     $statusOutput = git status --porcelain 2>$null
@@ -446,18 +452,63 @@ function Invoke-GitCommit {
         $commitHash = git rev-parse --short HEAD
         Write-Host "   → Commit hash: $commitHash"
 
-        # Ask about pushing
+        # After commit: ensure remote and optionally push
         $currentBranch = Get-CurrentGitBranch
         if ($currentBranch) {
+            # Check if remote 'origin' exists
+            $remoteExists = git remote | Where-Object { $_ -eq "origin" }
+            if (-not $remoteExists) {
+                Write-Host "`n🔗 No remote configured. Let's set one up to push your changes."
+                # Reuse account selection helper
+                $account = Get-ValidAccount
+                $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
+                $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                $gitEmail   = if ($account -eq "personal") { "muigaid91@dmail.com" } else { "muigaidavie6@gmail.com" }
+
+                $repoName = Read-Host "Enter the repository name to push to"
+                $remoteUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
+                git remote add origin $remoteUrl
+                Write-Host "🔗 Remote 'origin' added: $remoteUrl"
+            }
+
             $shouldPush = Get-ValidYesNo "🚀 Push commit to origin/$currentBranch?"
             if ($shouldPush) {
+                # Choose push mode
+                Write-Host "`n📤 Push options:"
+                Write-Host "   1) Normal push"
+                Write-Host "   2) Force push (with lease)"
+                Write-Host "   3) Force push (without lease)"
+                do {
+                    $commitPushChoice = Read-Host "Enter your choice (1-3)"
+                    switch ($commitPushChoice) {
+                        "1" { $commitForceMode = "normal"; $validCommitPushChoice = $true }
+                        "2" { $commitForceMode = "with-lease"; $validCommitPushChoice = $true }
+                        "3" { $commitForceMode = "force"; $validCommitPushChoice = $true }
+                        default { Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."; $validCommitPushChoice = $false }
+                    }
+                } while (-not $validCommitPushChoice)
+
                 # Check if upstream is set
                 $upstreamExists = git rev-parse --abbrev-ref "$currentBranch@{upstream}" 2>$null
                 if (-not $upstreamExists) {
-                    Write-Host "🔗 Setting upstream and pushing..."
-                    git push -u origin $currentBranch
+                    if ($commitForceMode -eq "with-lease") {
+                        Write-Host "🔗 Setting upstream and force pushing (with lease)..."
+                        git push -u --force-with-lease origin $currentBranch
+                    } elseif ($commitForceMode -eq "force") {
+                        Write-Host "🔗 Setting upstream and force pushing (without lease)..."
+                        git push -u --force origin $currentBranch
+                    } else {
+                        Write-Host "🔗 Setting upstream and pushing..."
+                        git push -u origin $currentBranch
+                    }
                 } else {
-                    git push origin $currentBranch
+                    if ($commitForceMode -eq "with-lease") {
+                        git push --force-with-lease origin $currentBranch
+                    } elseif ($commitForceMode -eq "force") {
+                        git push --force origin $currentBranch
+                    } else {
+                        git push origin $currentBranch
+                    }
                 }
                 Write-Host "✅ Changes pushed successfully!"
             }
@@ -845,14 +896,43 @@ switch ($action) {
 
         # Check if upstream is set for current branch
         $upstreamExists = git rev-parse --abbrev-ref "$currentBranch@{upstream}" 2>$null
-        
+
+        # Choose push mode
+        Write-Host "`n📤 Push options:"
+        Write-Host "   1) Normal push"
+        Write-Host "   2) Force push (with lease)"
+        Write-Host "   3) Force push (without lease)"
+        do {
+            $pushChoice = Read-Host "Enter your choice (1-3)"
+            switch ($pushChoice) {
+                "1" { $pushMode = "normal";      $validPushChoice = $true }
+                "2" { $pushMode = "with-lease";  $validPushChoice = $true }
+                "3" { $pushMode = "force";       $validPushChoice = $true }
+                default { Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."; $validPushChoice = $false }
+            }
+        } while (-not $validPushChoice)
+
         Write-Host "`n🚀 Pushing branch '$currentBranch'..."
         try {
             if (-not $upstreamExists) {
-                Write-Host "🔗 Setting upstream and pushing..."
-                $pushOutput = git push -u origin $currentBranch 2>&1
+                if ($pushMode -eq "with-lease") {
+                    Write-Host "🔗 Setting upstream and force pushing (with lease)..."
+                    $pushOutput = git push -u --force-with-lease origin $currentBranch 2>&1
+                } elseif ($pushMode -eq "force") {
+                    Write-Host "🔗 Setting upstream and force pushing (without lease)..."
+                    $pushOutput = git push -u --force origin $currentBranch 2>&1
+                } else {
+                    Write-Host "🔗 Setting upstream and pushing..."
+                    $pushOutput = git push -u origin $currentBranch 2>&1
+                }
             } else {
-                $pushOutput = git push origin $currentBranch 2>&1
+                if ($pushMode -eq "with-lease") {
+                    $pushOutput = git push --force-with-lease origin $currentBranch 2>&1
+                } elseif ($pushMode -eq "force") {
+                    $pushOutput = git push --force origin $currentBranch 2>&1
+                } else {
+                    $pushOutput = git push origin $currentBranch 2>&1
+                }
             }
             Write-Host $pushOutput
 
