@@ -17,7 +17,8 @@ if ($args.Count -gt 0 -and $args[0] -eq "--help") {
         "10. commit     → Add, commit, and optionally push changes",
         "11. history    → View commit history with details",
         "12. tokeninfo  → Display token permissions and scopes",
-        "13. setup      → Configure GitHub tokens securely"
+        "13. setup      → Configure GitHub tokens securely",
+        "14. branch     → Manage branches (list/create/switch/delete)"
     )
 
     foreach ($line in $helpItems) {
@@ -192,7 +193,7 @@ if ($args.Count -gt 0 -and $args[0] -eq "setup") {
 }
 
 # Define valid actions
-$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup")
+$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch")
 
 # Function to validate yes/no input
 function Get-ValidYesNo {
@@ -1212,8 +1213,95 @@ switch ($action) {
         Get-GitRepositoryInfo
     }
 
+    "branch" {
+        # Ensure we are inside a git repo
+        if (-not (Test-Path ".git")) {
+            Write-Host "`n❌ Not a Git repository. Initialize with 'git init' first."
+            return
+        }
+
+        Write-Host "`n🌿 Branch Manager"
+        Write-Host "──────────────────────────────────────────────"
+        Write-Host "  1) Show available branches"
+        Write-Host "  2) Create a new branch"
+        Write-Host "  3) Switch branch"
+        Write-Host "  4) Delete branch"
+
+        do {
+            $branchChoice = Read-Host "`nEnter your choice (1-4)"
+            switch ($branchChoice) {
+                "1" {
+                    Write-Host "`n📋 Available branches:`n"
+                    try {
+                        # Mark current with *
+                        $branches = git branch --all 2>$null
+                        if ($branches) { $branches | ForEach-Object { Write-Host "   $_" } }
+                        else { Write-Host "   (no branches found)" }
+                    } catch {
+                        Write-Host "❌ Failed to list branches: $($_.Exception.Message)"
+                    }
+                    $validBranchChoice = $true
+                }
+                "2" {
+                    $newBranch = Read-Host "Enter new branch name"
+                    if ([string]::IsNullOrWhiteSpace($newBranch)) {
+                        Write-Host "❌ Branch name cannot be empty."
+                        $validBranchChoice = $false
+                    } else {
+                        try {
+                            git checkout -b $newBranch 2>&1 | Write-Host
+                            Write-Host "✅ Created and switched to '$newBranch'"
+                            $validBranchChoice = $true
+                        } catch {
+                            Write-Host "❌ Failed to create branch: $($_.Exception.Message)"
+                            $validBranchChoice = $false
+                        }
+                    }
+                }
+                "3" {
+                    $targetBranch = Read-Host "Enter branch name to switch to"
+                    if ([string]::IsNullOrWhiteSpace($targetBranch)) {
+                        Write-Host "❌ Branch name cannot be empty."
+                        $validBranchChoice = $false
+                    } else {
+                        try {
+                            git checkout $targetBranch 2>&1 | Write-Host
+                            Write-Host "✅ Switched to '$targetBranch'"
+                            $validBranchChoice = $true
+                        } catch {
+                            Write-Host "❌ Failed to switch branch: $($_.Exception.Message)"
+                            $validBranchChoice = $false
+                        }
+                    }
+                }
+                "4" {
+                    $deleteBranch = Read-Host "Enter branch name to delete"
+                    if ([string]::IsNullOrWhiteSpace($deleteBranch)) {
+                        Write-Host "❌ Branch name cannot be empty."
+                        $validBranchChoice = $false
+                    } else {
+                        $forceDelete = Get-ValidYesNo "Force delete? (use if branch not fully merged)" "n"
+                        try {
+                            if ($forceDelete) { git branch -D $deleteBranch 2>&1 | Write-Host }
+                            else { git branch -d $deleteBranch 2>&1 | Write-Host }
+                            Write-Host "✅ Deleted branch '$deleteBranch'"
+                            $validBranchChoice = $true
+                        } catch {
+                            Write-Host "❌ Failed to delete branch: $($_.Exception.Message)"
+                            $validBranchChoice = $false
+                        }
+                    }
+                }
+                default {
+                    Write-Host "❌ Invalid choice. Please enter 1, 2, 3, or 4."
+                    $validBranchChoice = $false
+                }
+            }
+        } while (-not $validBranchChoice)
+    }
+
     default {
         Write-Host "`n❌ Invalid action. Please enter one of the following:"
-        Write-Host "   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup"
+        Write-Host "   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup / branch"
     }
 }
