@@ -228,7 +228,7 @@ function Set-GitHubTokens {
         
         for ($i = 0; $i -lt $accounts.Count; $i++) {
             $account = $accounts[$i]
-            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
+            Write-Host "   $($i + 1). $($account.name)"
         }
         
         $tokens = @{}
@@ -295,7 +295,7 @@ function Remove-GitHubTokens {
             $account = $accounts[$i]
             $tokenExists = [Environment]::GetEnvironmentVariable($account.tokenEnvVar, "User")
             $status = if ($tokenExists) { "✅ Token exists" } else { "❌ No token" }
-            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias)) - $status"
+            Write-Host "   $($i + 1). $($account.name) - $status"
         }
         
         Write-Host "`n🎯 Delete options:"
@@ -312,7 +312,7 @@ function Remove-GitHubTokens {
                         $account = $accounts[$i]
                         $tokenExists = [Environment]::GetEnvironmentVariable($account.tokenEnvVar, "User")
                         if ($tokenExists) {
-                            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
+                            Write-Host "   $($i + 1). $($account.name)"
                         }
                     }
                     
@@ -1115,7 +1115,7 @@ function Get-ValidAccount {
         
         for ($i = 0; $i -lt $accounts.Count; $i++) {
             $account = $accounts[$i]
-            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
+            Write-Host "   $($i + 1). $($account.name)"
         }
         
         do {
