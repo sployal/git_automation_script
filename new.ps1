@@ -40,24 +40,86 @@ if ($args.Count -gt 0 -and $args[0] -eq "--help") {
     exit
 }
 
+# Function to read accounts from SSH config file
+function Get-AccountsFromSSHConfig {
+    $sshDir = "$env:USERPROFILE\.ssh"
+    $configPath = "$sshDir\config"
+    
+    if (-not (Test-Path $configPath)) {
+        Write-Host "`n❌ SSH config file not found: $configPath"
+        Write-Host "   → Please run 'gitgo setup' and select SSH Configuration first"
+        throw "SSH config file not found"
+    }
+    
+    try {
+        $configContent = Get-Content $configPath -Raw
+        $accounts = @()
+        
+        # Parse SSH config for GitHub hosts
+        $lines = $configContent -split "`n"
+        $currentHost = $null
+        $currentAlias = $null
+        
+        foreach ($line in $lines) {
+            $line = $line.Trim()
+            
+            if ($line.StartsWith("Host ") -and $line -match "^Host (.+)$") {
+                $currentHost = $matches[1]
+                $currentAlias = $currentHost
+            }
+            elseif ($line.StartsWith("IdentityFile ") -and $line -match "IdentityFile ~/\.ssh/id_ed25519_(.+)") {
+                $alias = $matches[1]
+                $accountType = $alias -replace 'github-', '' -replace '_', ' '
+                $accountType = (Get-Culture).TextInfo.ToTitleCase($accountType.ToLower())
+                
+                $accounts += [PSCustomObject]@{
+                    id = $alias
+                    name = $accountType
+                    sshAlias = $currentAlias
+                    tokenEnvVar = "GITHUB_$($alias.ToUpper().Replace('-', '_'))_TOKEN"
+                }
+            }
+        }
+        
+        if ($accounts.Count -eq 0) {
+            throw "No GitHub accounts found in SSH config"
+        }
+        
+        return $accounts
+    } catch {
+        Write-Host "`n❌ Error reading SSH config: $($_.Exception.Message)"
+        throw $_.Exception.Message
+    }
+}
+
 # Function to securely retrieve GitHub tokens
 function Get-GitHubToken {
     param(
-        [ValidateSet("personal", "work")]
         [string]$Account
     )
     
-    $envVar = if ($Account -eq "personal") { "GITHUB_PERSONAL_TOKEN" } else { "GITHUB_WORK_TOKEN" }
-    $token = [Environment]::GetEnvironmentVariable($envVar, "User")
-    
-    if ([string]::IsNullOrWhiteSpace($token)) {
-        Write-Host "`n❌ GitHub token not found for $Account account."
-        Write-Host "   → Run 'gitgo setup' or action '10' to configure tokens."
-        Write-Host "   → Or manually set environment variable: $envVar"
-        throw "Missing GitHub token for $Account account"
+    try {
+        $accounts = Get-AccountsFromSSHConfig
+        $accountConfig = $accounts | Where-Object { $_.id -eq $Account }
+        
+        if (-not $accountConfig) {
+            throw "Account '$Account' not found in SSH config"
+        }
+        
+        $token = [Environment]::GetEnvironmentVariable($accountConfig.tokenEnvVar, "User")
+        
+        if ([string]::IsNullOrWhiteSpace($token)) {
+            Write-Host "`n❌ GitHub token not found for $($accountConfig.name)."
+            Write-Host "   → Run 'gitgo setup' or action '13' to configure tokens."
+            Write-Host "   → Or manually set environment variable: $($accountConfig.tokenEnvVar)"
+            throw "Missing GitHub token for $($accountConfig.name)"
+        }
+        
+        return $token
+    } catch {
+        Write-Host "`n❌ Error retrieving token: $($_.Exception.Message)"
+        throw $_.Exception.Message
     }
-    
-    return $token
 }
 
 # Function to generate GitHub SSH keys and configure SSH
@@ -88,7 +150,7 @@ function Generate-GitHubSSHKeysAndConfig {
 
     for ($i = 1; $i -le $count; $i++) {
         Write-Host "`n🧑‍💻 Account #$i setup" -ForegroundColor Cyan
-        $accountType = Read-Host "Enter account type (e.g., personal, work, freelance)"
+        $accountType = Read-Host "Enter account name/type (e.g., personal, work, freelance)"
         $email = Read-Host "Enter email for '$accountType' account"
         $alias = "github-" + ($accountType.ToLower().Trim() -replace '[^a-z0-9]', '_')
         $keyName = "id_ed25519_$alias"
@@ -114,6 +176,20 @@ function Generate-GitHubSSHKeysAndConfig {
         if (Test-Path $pubKeyPath) {
             Write-Host "`n📋 Public key for '$accountType' (copy to GitHub):" -ForegroundColor Magenta
             Get-Content $pubKeyPath
+
+            # 🧭 Guidance: Add the key to GitHub and copy to clipboard
+            Write-Host "`n🧭 Add this SSH key to your GitHub account:" -ForegroundColor Yellow
+            Write-Host "   1) Open: https://github.com/settings/keys"
+            Write-Host "   2) Click 'New SSH key'"
+            Write-Host "   3) Paste the key above into the 'Key' field and save"
+
+            # 📋 Automatically copy the public key to clipboard (Windows/PowerShell)
+            try {
+                Get-Content $pubKeyPath | Set-Clipboard
+                Write-Host "📌 Public key has been copied to your clipboard." -ForegroundColor Green
+            } catch {
+                Write-Host "⚠️ Could not copy to clipboard automatically. Please copy it manually." -ForegroundColor DarkYellow
+            }
         }
 
         # 🧩 Add SSH config entry
@@ -145,29 +221,47 @@ function Set-GitHubTokens {
     Write-Host "   Required scopes: repo, delete_repo, user`n"
     
     try {
-        Write-Host "🔑 Personal Account Token:"
-        $personalToken = Read-Host "Enter your PERSONAL GitHub token" -AsSecureString
+        $accounts = Get-AccountsFromSSHConfig
         
-        Write-Host "`n🔑 Work Account Token:"
-        $workToken = Read-Host "Enter your WORK GitHub token" -AsSecureString
+        Write-Host "👤 Available GitHub Accounts:"
+        Write-Host "──────────────────────────────────────────────"
         
-        # Convert secure strings to plain text for environment variables
-        $personalTokenPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($personalToken))
-        $workTokenPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($workToken))
-        
-        # Validate tokens are not empty
-        if ([string]::IsNullOrWhiteSpace($personalTokenPlain) -or [string]::IsNullOrWhiteSpace($workTokenPlain)) {
-            throw "Tokens cannot be empty"
+        for ($i = 0; $i -lt $accounts.Count; $i++) {
+            $account = $accounts[$i]
+            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
         }
         
-        # Set environment variables
-        [Environment]::SetEnvironmentVariable("GITHUB_PERSONAL_TOKEN", $personalTokenPlain, "User")
-        [Environment]::SetEnvironmentVariable("GITHUB_WORK_TOKEN", $workTokenPlain, "User")
+        $tokens = @{}
+        
+        for ($i = 0; $i -lt $accounts.Count; $i++) {
+            $account = $accounts[$i]
+            Write-Host "`n🔑 $($account.name) Token:"
+            $token = Read-Host "Enter your $($account.name.ToUpper()) GitHub token" -AsSecureString
+            
+            # Convert secure string to plain text
+            $tokenPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($token))
+            
+            # Validate token is not empty
+            if ([string]::IsNullOrWhiteSpace($tokenPlain)) {
+                throw "Token for $($account.name) cannot be empty"
+            }
+            
+            $tokens[$account.tokenEnvVar] = $tokenPlain
+            
+            # Clear sensitive variables from memory
+            $token.Dispose()
+        }
+        
+        # Set all environment variables
+        foreach ($envVar in $tokens.Keys) {
+            [Environment]::SetEnvironmentVariable($envVar, $tokens[$envVar], "User")
+        }
         
         Write-Host "`n✅ Tokens configured successfully!"
         Write-Host "🔄 Environment variables updated:"
-        Write-Host "   → GITHUB_PERSONAL_TOKEN"
-        Write-Host "   → GITHUB_WORK_TOKEN"
+        foreach ($envVar in $tokens.Keys) {
+            Write-Host "   → $envVar"
+        }
         Write-Host "`n⚠️  Please restart PowerShell for changes to take effect."
         Write-Host "   Or reload environment: refreshenv (if using Chocolatey)"
         
@@ -175,18 +269,117 @@ function Set-GitHubTokens {
         Write-Host "`n❌ Token setup failed: $($_.Exception.Message)"
     } finally {
         # Clear sensitive variables from memory
-        if ($personalTokenPlain) { 
-            $personalTokenPlain = $null 
+        if ($tokens) {
+            foreach ($token in $tokens.Values) {
+                $token = $null
+            }
+            $tokens.Clear()
         }
-        if ($workTokenPlain) { 
-            $workTokenPlain = $null 
+    }
+}
+
+# Function to delete GitHub tokens
+function Remove-GitHubTokens {
+    Write-Host "`n🗑️ Delete GitHub Tokens"
+    Write-Host "──────────────────────────────────────────────"
+    Write-Host "This will remove your stored GitHub Personal Access Tokens."
+    Write-Host "Tokens will be deleted from user environment variables.`n"
+    
+    try {
+        $accounts = Get-AccountsFromSSHConfig
+        
+        Write-Host "👤 Available GitHub Accounts:"
+        Write-Host "──────────────────────────────────────────────"
+        
+        for ($i = 0; $i -lt $accounts.Count; $i++) {
+            $account = $accounts[$i]
+            $tokenExists = [Environment]::GetEnvironmentVariable($account.tokenEnvVar, "User")
+            $status = if ($tokenExists) { "✅ Token exists" } else { "❌ No token" }
+            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias)) - $status"
         }
-        if ($personalToken) { 
-            $personalToken.Dispose() 
-        }
-        if ($workToken) { 
-            $workToken.Dispose() 
-        }
+        
+        Write-Host "`n🎯 Delete options:"
+        Write-Host "   1) Delete tokens for specific account"
+        Write-Host "   2) Delete all tokens"
+        Write-Host "   3) Cancel"
+        
+        do {
+            $deleteChoice = Read-Host "`nEnter your choice (1-3)"
+            switch ($deleteChoice) {
+                "1" {
+                    Write-Host "`n👤 Select account to delete tokens:"
+                    for ($i = 0; $i -lt $accounts.Count; $i++) {
+                        $account = $accounts[$i]
+                        $tokenExists = [Environment]::GetEnvironmentVariable($account.tokenEnvVar, "User")
+                        if ($tokenExists) {
+                            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
+                        }
+                    }
+                    
+                    do {
+                        $accountChoice = Read-Host "`nEnter account number to delete tokens"
+                        if ([int]::TryParse($accountChoice, [ref]$null) -and [int]$accountChoice -ge 1 -and [int]$accountChoice -le $accounts.Count) {
+                            $selectedAccount = $accounts[[int]$accountChoice - 1]
+                            $tokenExists = [Environment]::GetEnvironmentVariable($selectedAccount.tokenEnvVar, "User")
+                            
+                            if ($tokenExists) {
+                                $confirm = Get-ValidYesNo "Are you sure you want to delete tokens for $($selectedAccount.name)?"
+                                if ($confirm) {
+                                    [Environment]::SetEnvironmentVariable($selectedAccount.tokenEnvVar, $null, "User")
+                                    Write-Host "✅ Tokens deleted for $($selectedAccount.name)"
+                                    Write-Host "   → Removed: $($selectedAccount.tokenEnvVar)"
+                                } else {
+                                    Write-Host "🚫 Token deletion cancelled for $($selectedAccount.name)"
+                                }
+                            } else {
+                                Write-Host "ℹ️ No tokens found for $($selectedAccount.name)"
+                            }
+                            $validAccountChoice = $true
+                        } else {
+                            Write-Host "❌ Invalid choice. Please enter a number between 1 and $($accounts.Count)."
+                            $validAccountChoice = $false
+                        }
+                    } while (-not $validAccountChoice)
+                    $validDeleteChoice = $true
+                }
+                "2" {
+                    $confirm = Get-ValidYesNo "Are you absolutely sure you want to delete ALL GitHub tokens?"
+                    if ($confirm) {
+                        $deletedCount = 0
+                        foreach ($account in $accounts) {
+                            $tokenExists = [Environment]::GetEnvironmentVariable($account.tokenEnvVar, "User")
+                            if ($tokenExists) {
+                                [Environment]::SetEnvironmentVariable($account.tokenEnvVar, $null, "User")
+                                Write-Host "✅ Deleted: $($account.tokenEnvVar)"
+                                $deletedCount++
+                            }
+                        }
+                        
+                        if ($deletedCount -gt 0) {
+                            Write-Host "`n✅ Successfully deleted $deletedCount token(s)"
+                            Write-Host "🔄 Environment variables updated"
+                            Write-Host "⚠️  Please restart PowerShell for changes to take effect"
+                        } else {
+                            Write-Host "`nℹ️ No tokens were found to delete"
+                        }
+                    } else {
+                        Write-Host "🚫 Token deletion cancelled"
+                    }
+                    $validDeleteChoice = $true
+                }
+                "3" {
+                    Write-Host "🚫 Token deletion cancelled"
+                    $validDeleteChoice = $true
+                }
+                default {
+                    Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
+                    $validDeleteChoice = $false
+                }
+            }
+        } while (-not $validDeleteChoice)
+        
+    } catch {
+        Write-Host "`n❌ Error deleting tokens: $($_.Exception.Message)"
     }
 }
 
@@ -263,12 +456,44 @@ function Test-GitHubTokenScopes {
 
 # Handle direct setup command
 if ($args.Count -gt 0 -and $args[0] -eq "setup") {
-    Set-GitHubTokens
+    Write-Host "`n🔧 Setup Options"
+    Write-Host "──────────────────────────────────────────────"
+    Write-Host "   1) SSH Configuration (Generate SSH keys for GitHub accounts)"
+    Write-Host "   2) GitHub Token Setup (Configure Personal Access Tokens)"
+    Write-Host "   3) Delete GitHub Tokens (Remove stored tokens)"
+    
+    do {
+        $setupChoice = Read-Host "`nEnter your choice (1-3)"
+        switch ($setupChoice) {
+            "1" {
+                Write-Host "`n🔐 SSH Configuration Setup"
+                Write-Host "──────────────────────────────────────────────"
+                Generate-GitHubSSHKeysAndConfig
+                $validSetupChoice = $true
+            }
+            "2" {
+                Write-Host "`n🔑 GitHub Token Setup"
+                Write-Host "──────────────────────────────────────────────"
+                Set-GitHubTokens
+                $validSetupChoice = $true
+            }
+            "3" {
+                Write-Host "`n🗑️ Delete GitHub Tokens"
+                Write-Host "──────────────────────────────────────────────"
+                Remove-GitHubTokens
+                $validSetupChoice = $true
+            }
+            default {
+                Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
+                $validSetupChoice = $false
+            }
+        }
+    } while (-not $validSetupChoice)
     exit
 }
 
 # Define valid actions
-$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch", "remotem")
+$validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch", "remotem", "help")
 
 # Function to validate yes/no input
 function Get-ValidYesNo {
@@ -536,9 +761,13 @@ function Invoke-GitCommit {
                 Write-Host "`n🔗 No remote configured. Let's set one up to push your changes."
                 # Reuse account selection helper
                 $account = Get-ValidAccount
-                $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
-                $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
-                $gitEmail   = if ($account -eq "personal") { "muigaid91@dmail.com" } else { "muigaidavie6@gmail.com" }
+                $accounts = Get-AccountsFromSSHConfig
+                $accountConfig = $accounts | Where-Object { $_.id -eq $account }
+                
+                Write-Host "`n👤 Account: $($accountConfig.name)"
+                $githubUser = Read-Host "Enter your GitHub username for this account"
+                $gitEmail = Read-Host "Enter your Git email for this account"
+                $sshAlias = $accountConfig.sshAlias
 
                 $repoName = Read-Host "Enter the repository name to push to"
                 $remoteUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
@@ -822,7 +1051,10 @@ for ($i = 0; $i -lt $actionList.Count; $i += $columns) {
 }
 
 Write-Host "`nType the action name or number. Type 'q' to quit."
-Write-Host "`nFirst time? Run 'setup' (10) to configure GitHub tokens securely."
+
+# Dynamically find setup action number
+$setupActionNumber = $numberedActions.GetEnumerator() | Where-Object { $_.Value -eq "setup" } | Select-Object -ExpandProperty Key
+Write-Host "`nFirst time? Run 'setup' ($setupActionNumber) to configure GitHub tokens securely."
 
 # Prompt until valid action or 'q' is entered
 do {
@@ -830,10 +1062,43 @@ do {
     if ($input -eq "q") {
         Write-Host "`n👋 Exiting GitGo."
         exit
-    } elseif ($validActions -contains $input) {
-        $action = $input
-    } elseif ($numberedActions.ContainsKey($input)) {
-        $action = $numberedActions[$input]
+    } elseif (($validActions -contains $input) -or ($numberedActions.ContainsKey($input))) {
+        # Resolve to action name if a number was provided
+        $resolvedAction = if ($numberedActions.ContainsKey($input)) { $numberedActions[$input] } else { $input }
+        if ($resolvedAction -eq "help") {
+            # Inline help that doesn't exit; re-display actions and continue loop
+            Write-Host "`n📘 GitGo Help Menu"
+            Write-Host "──────────────────────────────────────────────"
+            Write-Host "Available Actions:`n"
+            $helpItems = @(
+                "1. clone       → Clone a remote repo and configure identity",
+                "2. push        → Push already committed changes to origin",
+                "3. pull        → Pull latest changes from origin/main",
+                "4. adduser     → Set Git username and email for current repo",
+                "5. showuser    → Display current Git identity",
+                "6. addremote   → Create a new GitHub repo with README and optional clone",
+                "7. delremote   → Delete a GitHub repo after confirmation",
+                "8. remotelist  → List all repos under selected GitHub account",
+                "9. status      → Show comprehensive repository information",
+                "10. commit     → Add, commit, and optionally push changes",
+                "11. history    → View commit history with details",
+                "12. tokeninfo  → Display token permissions and scopes",
+                "13. setup      → Configure GitHub tokens securely",
+                "14. branch     → Manage branches (list/create/switch/delete)",
+                "15. remotem    → Manage remote for current repository",
+                "16. help       → Show this help and return to prompt"
+            )
+            foreach ($line in $helpItems) { Write-Host "  $line" }
+            Write-Host "`nUsage:"
+            Write-Host "  gitgo         → Launch interactive menu"
+            Write-Host "  gitgo --help  → Show this help menu"
+            Write-Host "`nFirst time setup:"
+            Write-Host "  gitgo setup   → Configure your GitHub tokens"
+            Write-Host "`n(Type an action name/number or 'q' to quit)"
+            $action = $null
+        } else {
+            $action = $resolvedAction
+        }
     } else {
         Write-Host "`n❌ Invalid input. Please enter a valid action name, number, or 'q' to quit."
         $action = $null
@@ -842,14 +1107,30 @@ do {
 
 # Function to validate and get account selection
 function Get-ValidAccount {
-    do {
-        $account = Read-Host "Which account are you using? (personal/work)"
-        if ($account -eq "personal" -or $account -eq "work") {
-            return $account
-        } else {
-            Write-Host "`n❌ Invalid account. Please enter 'personal' or 'work' only."
+    try {
+        $accounts = Get-AccountsFromSSHConfig
+        
+        Write-Host "`n👤 Available GitHub Accounts:"
+        Write-Host "──────────────────────────────────────────────"
+        
+        for ($i = 0; $i -lt $accounts.Count; $i++) {
+            $account = $accounts[$i]
+            Write-Host "   $($i + 1). $($account.name) ($($account.sshAlias))"
         }
-    } while ($true)
+        
+        do {
+            $choice = Read-Host "`nEnter your choice (1-$($accounts.Count))"
+            if ([int]::TryParse($choice, [ref]$null) -and [int]$choice -ge 1 -and [int]$choice -le $accounts.Count) {
+                $selectedAccount = $accounts[[int]$choice - 1]
+                return $selectedAccount.id
+            } else {
+                Write-Host "`n❌ Invalid choice. Please enter a number between 1 and $($accounts.Count)."
+            }
+        } while ($true)
+    } catch {
+        Write-Host "`n❌ Error loading accounts: $($_.Exception.Message)"
+        throw $_.Exception.Message
+    }
 }
 
 # Function to validate and get repository visibility
@@ -875,16 +1156,27 @@ $tokenPlain = ""
 
 # Handle account setup for relevant actions
 if ($action -in @("clone", "push", "addremote", "delremote", "remotelist", "tokeninfo")) {
-    $account = Get-ValidAccount
-    $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
-    $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
-    $gitEmail   = if ($account -eq "personal") { "muigaid91@dmail.com" } else { "muigaidavie6@gmail.com" }
-    
-    # Securely retrieve token from environment variables
     try {
-        $tokenPlain = Get-GitHubToken -Account $account
+        $account = Get-ValidAccount
+        $accounts = Get-AccountsFromSSHConfig
+        $accountConfig = $accounts | Where-Object { $_.id -eq $account }
+        
+        # For now, we'll need to get the GitHub username and email from user input
+        # since they're not stored in the SSH config
+        Write-Host "`n👤 Account: $($accountConfig.name)"
+        $githubUser = Read-Host "Enter your GitHub username for this account"
+        $gitEmail = Read-Host "Enter your Git email for this account"
+        $sshAlias = $accountConfig.sshAlias
+        
+        # Securely retrieve token from environment variables
+        try {
+            $tokenPlain = Get-GitHubToken -Account $account
+        } catch {
+            Write-Host $_.Exception.Message
+            return
+        }
     } catch {
-        Write-Host $_.Exception.Message
+        Write-Host "`n❌ Error setting up account: $($_.Exception.Message)"
         return
     }
 }
@@ -896,9 +1188,10 @@ switch ($action) {
         Write-Host "──────────────────────────────────────────────"
         Write-Host "   1) SSH Configuration (Generate SSH keys for GitHub accounts)"
         Write-Host "   2) GitHub Token Setup (Configure Personal Access Tokens)"
+        Write-Host "   3) Delete GitHub Tokens (Remove stored tokens)"
         
         do {
-            $setupChoice = Read-Host "`nEnter your choice (1-2)"
+            $setupChoice = Read-Host "`nEnter your choice (1-3)"
             switch ($setupChoice) {
                 "1" {
                     Write-Host "`n🔐 SSH Configuration Setup"
@@ -912,8 +1205,14 @@ switch ($action) {
                     Set-GitHubTokens
                     $validSetupChoice = $true
                 }
+                "3" {
+                    Write-Host "`n🗑️ Delete GitHub Tokens"
+                    Write-Host "──────────────────────────────────────────────"
+                    Remove-GitHubTokens
+                    $validSetupChoice = $true
+                }
                 default {
-                    Write-Host "❌ Invalid choice. Please enter 1 or 2."
+                    Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
                     $validSetupChoice = $false
                 }
             }
@@ -1595,8 +1894,12 @@ switch ($action) {
                 switch ($remoteChoice.ToLower()) {
                     "u" {
                         $account = Get-ValidAccount
-                        $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
-                        $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                        $accounts = Get-AccountsFromSSHConfig
+                        $accountConfig = $accounts | Where-Object { $_.id -eq $account }
+                        
+                        Write-Host "`n👤 Account: $($accountConfig.name)"
+                        $githubUser = Read-Host "Enter your GitHub username for this account"
+                        $sshAlias = $accountConfig.sshAlias
                         $newRepo    = Read-Host "Enter the NEW repository name"
                         if ([string]::IsNullOrWhiteSpace($newRepo)) { Write-Host "❌ Repo name cannot be empty."; $valid = $false; break }
                         $newUrl = "git@${sshAlias}:${githubUser}/${newRepo}.git"
@@ -1608,8 +1911,12 @@ switch ($action) {
                         git remote remove origin 2>$null
                         Write-Host "✅ Removed remote 'origin'."
                         $account = Get-ValidAccount
-                        $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
-                        $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                        $accounts = Get-AccountsFromSSHConfig
+                        $accountConfig = $accounts | Where-Object { $_.id -eq $account }
+                        
+                        Write-Host "`n👤 Account: $($accountConfig.name)"
+                        $githubUser = Read-Host "Enter your GitHub username for this account"
+                        $sshAlias = $accountConfig.sshAlias
                         $repoName   = Read-Host "Enter the repository name to add as origin"
                         if ([string]::IsNullOrWhiteSpace($repoName)) { Write-Host "❌ Repo name cannot be empty."; $valid = $false; break }
                         $newUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
@@ -1628,8 +1935,12 @@ switch ($action) {
             $shouldAdd = Get-ValidYesNo "Add a remote now?" "y"
             if ($shouldAdd) {
                 $account = Get-ValidAccount
-                $githubUser = if ($account -eq "personal") { "sployal" } else { "Dvulkran" }
-                $sshAlias   = if ($account -eq "personal") { "personal" } else { "work" }
+                $accounts = Get-AccountsFromSSHConfig
+                $accountConfig = $accounts | Where-Object { $_.id -eq $account }
+                
+                Write-Host "`n👤 Account: $($accountConfig.name)"
+                $githubUser = Read-Host "Enter your GitHub username for this account"
+                $sshAlias = $accountConfig.sshAlias
                 $repoName   = Read-Host "Enter the repository name to add as origin"
                 if ([string]::IsNullOrWhiteSpace($repoName)) { Write-Host "❌ Repo name cannot be empty."; return }
                 $newUrl = "git@${sshAlias}:${githubUser}/${repoName}.git"
