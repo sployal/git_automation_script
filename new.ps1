@@ -1,44 +1,136 @@
-# Show help menu if --help is passed
-if ($args.Count -gt 0 -and $args[0] -eq "--help") {
-    Write-Host "`n📘 GitGo Help Menu"
+# Function to add GitGo folder to Windows PATH
+function Add-GitGoToPath {
+    Write-Host "`n🔧 Adding GitGo to Windows PATH"
     Write-Host "──────────────────────────────────────────────"
-    Write-Host "Available Actions:`n"
-
-    $helpItems = @(
-        "1. clone       → Clone a remote repo and configure identity",
-        "2. push        → Push already committed changes to origin",
-        "3. pull        → Pull latest changes from origin/main",
-        "4. adduser     → Set Git username and email for current repo",
-        "5. showuser    → Display current Git identity",
-        "6. addremote   → Create a new GitHub repo with README and optional clone",
-        "7. remotelist  → List all repos under selected GitHub account",
-        "8. delremote   → Delete a GitHub repo after confirmation",
-        "9. status      → Show comprehensive repository information",
-        "10. commit     → Add, commit, and optionally push changes",
-        "11. history    → View commit history with details",
-        "12. tokeninfo  → Display token permissions and scopes",
-                        "13. setup      → Configure GitHub accounts and tokens securely",
-        "14. branch     → Manage branches (list/create/switch/delete)",
-        "15. remotem    → Manage remote for current repository",
-        "16. changename → Change name of a GitHub repository"
-    )
-
-    foreach ($line in $helpItems) {
-        Write-Host "  $line"
+    
+    try {
+        # Get current script directory
+        $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+        if (-not $scriptPath) {
+            $scriptPath = Get-Location
+        }
+        
+        Write-Host "📍 GitGo folder: $scriptPath"
+        
+        # Get current user PATH
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        
+        # Check if already in PATH
+        if ($userPath -like "*$scriptPath*") {
+            Write-Host "ℹ️ GitGo folder is already in your PATH"
+            return
+        }
+        
+        # Add to PATH
+        $newPath = "$userPath;$scriptPath"
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        
+        Write-Host "✅ GitGo folder added to PATH successfully!"
+        Write-Host "`n📋 Next steps:"
+        Write-Host "   1. Close and reopen your terminal/PowerShell"
+        Write-Host "   2. Navigate to any folder"
+        Write-Host "   3. Run 'gitgo' from anywhere!"
+        Write-Host "`n🔍 To verify, run: gitgo --help"
+        
+    } catch {
+        Write-Host "❌ Failed to add GitGo to PATH: $($_.Exception.Message)"
+        Write-Host "   → Try running PowerShell as Administrator"
+        Write-Host "   → Or manually add the folder to PATH using Windows Settings"
     }
+}
 
-    Write-Host "`nUsage:"
-    Write-Host "  gitgo         → Launch interactive menu"
-    Write-Host "  gitgo --help  → Show this help menu"
-    Write-Host "`nFirst time setup:"
-    Write-Host "  gitgo setup   → Configure your GitHub tokens"
+# Function to remove GitGo folder from Windows PATH
+function Remove-GitGoFromPath {
+    Write-Host "`n🗑️ Removing GitGo from Windows PATH"
+    Write-Host "──────────────────────────────────────────────"
+    
+    try {
+        # Get current script directory
+        $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+        if (-not $scriptPath) {
+            $scriptPath = Get-Location
+        }
+        
+        Write-Host "📍 GitGo folder: $scriptPath"
+        
+        # Get current user PATH
+        $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+        
+        # Check if in PATH
+        if ($userPath -notlike "*$scriptPath*") {
+            Write-Host "ℹ️ GitGo folder is not in your PATH"
+            return
+        }
+        
+        # Remove from PATH
+        $newPath = ($userPath -split ';' | Where-Object { $_ -ne $scriptPath }) -join ';'
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+        
+        Write-Host "✅ GitGo folder removed from PATH successfully!"
+        Write-Host "`n📋 Note: You'll need to close and reopen your terminal for changes to take effect"
+        
+    } catch {
+        Write-Host "❌ Failed to remove GitGo from PATH: $($_.Exception.Message)"
+        Write-Host "   → Try running PowerShell as Administrator"
+        Write-Host "   → Or manually remove the folder from PATH using Windows Settings"
+    }
+}
 
-    Write-Host "`nCreator:"
-    Write-Host "  🧑‍💻 David Muigai — Nairobi, Kenya"
-    Write-Host "  ✨ Workflow architect & terminal automation enthusiast"
+# Handle PATH management commands
+if ($args.Count -gt 0) {
+    switch ($args[0]) {
+        "--help" {
+            Write-Host "`n📘 GitGo Help Menu"
+            Write-Host "──────────────────────────────────────────────"
+            Write-Host "Available Actions:`n"
 
-    Write-Host ""
-    exit
+            $helpItems = @(
+                "1. clone       → Clone a remote repo and configure identity",
+                "2. push        → Push already committed changes to origin",
+                "3. pull        → Pull latest changes from origin/main",
+                "4. adduser     → Set Git username and email for current repo",
+                "5. showuser    → Display current Git identity",
+                "6. addremote   → Create a new GitHub repo with README and optional clone",
+                "7. remotelist  → List all repos under selected GitHub account",
+                "8. delremote   → Delete a GitHub repo after confirmation",
+                "9. status      → Show comprehensive repository information",
+                "10. commit     → Add, commit, and optionally push changes",
+                "11. history    → View commit history with details",
+                "12. tokeninfo  → Display token permissions and scopes",
+                "13. setup      → Configure GitHub accounts and tokens securely",
+                "14. branch     → Manage branches (list/create/switch/delete)",
+                "15. remotem    → Manage remote for current repository",
+                "16. changename → Change name of a GitHub repository"
+            )
+
+            foreach ($line in $helpItems) {
+                Write-Host "  $line"
+            }
+
+            Write-Host "`nUsage:"
+            Write-Host "  gitgo                    → Launch interactive menu"
+            Write-Host "  gitgo --help             → Show this help menu"
+            Write-Host "  gitgo --add-to-path      → Add GitGo folder to Windows PATH"
+            Write-Host "  gitgo --remove-from-path → Remove GitGo folder from Windows PATH"
+            Write-Host "`nFirst time setup:"
+            Write-Host "  gitgo setup              → Configure your GitHub tokens"
+
+            Write-Host "`nCreator:"
+            Write-Host "  🧑‍💻 David Muigai — Nairobi, Kenya"
+            Write-Host "  ✨ Workflow architect & terminal automation enthusiast"
+
+            Write-Host ""
+            exit
+        }
+        "--add-to-path" {
+            Add-GitGoToPath
+            exit
+        }
+        "--remove-from-path" {
+            Remove-GitGoFromPath
+            exit
+        }
+    }
 }
 
 # Function to read accounts from SSH config file
