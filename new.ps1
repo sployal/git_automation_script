@@ -76,7 +76,54 @@ function Remove-GitGoFromPath {
     }
 }
 
-# Handle PATH management commands
+# Function to execute action directly from command line
+function Invoke-DirectAction {
+    param(
+        [string]$Action
+    )
+    
+    # Define action mappings (action name -> action number)
+    $actionMap = @{
+        "clone" = "1"
+        "push" = "2" 
+        "pull" = "3"
+        "adduser" = "4"
+        "showuser" = "5"
+        "addremote" = "6"
+        "remotelist" = "7"
+        "delremote" = "8"
+        "status" = "9"
+        "commit" = "10"
+        "history" = "11"
+        "tokeninfo" = "12"
+        "setup" = "13"
+        "branch" = "14"
+        "remotem" = "15"
+        "changename" = "16"
+        "help" = "17"
+    }
+    
+    # Check if action is a valid action name
+    if ($actionMap.ContainsKey($Action)) {
+        Write-Host "`n 🚀 Executing action: $Action (Action #$($actionMap[$Action]))"
+        Write-Host "──────────────────────────────────────────────"
+        return $Action
+    }
+    
+    # Check if action is a valid action number
+    $validActions = @("clone", "push", "pull", "adduser", "showuser", "addremote", "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "branch", "remotem", "changename", "help")
+    if ([int]::TryParse($Action, [ref]$null) -and [int]$Action -ge 1 -and [int]$Action -le $validActions.Count) {
+        $actionName = $validActions[[int]$Action - 1]
+        Write-Host "`n[EXEC] Executing action: $actionName (Action #$Action)"
+        Write-Host "──────────────────────────────────────────────"
+        return $actionName
+    }
+    
+    # If neither valid name nor number, return null
+    return $null
+}
+
+# Handle PATH management commands and direct action execution
 if ($args.Count -gt 0) {
     switch ($args[0]) {
         "--help" {
@@ -112,6 +159,11 @@ if ($args.Count -gt 0) {
             Write-Host "  gitgo --help             → Show this help menu"
             Write-Host "  gitgo --add-to-path      → Add GitGo folder to Windows PATH"
             Write-Host "  gitgo --remove-from-path → Remove GitGo folder from Windows PATH"
+            Write-Host "`nDirect Action Execution:"
+            Write-Host "  gitgo push               → Execute push action directly"
+            Write-Host "  gitgo 2                  → Execute action #2 (push) directly"
+            Write-Host "  gitgo clone              → Execute clone action directly"
+            Write-Host "  gitgo 1                  → Execute action #1 (clone) directly"
             Write-Host "`nFirst time setup:"
             Write-Host "  gitgo setup              → Configure your GitHub tokens"
 
@@ -129,6 +181,52 @@ if ($args.Count -gt 0) {
         "--remove-from-path" {
             Remove-GitGoFromPath
             exit
+        }
+        default {
+            # Try to execute action directly
+            $directAction = Invoke-DirectAction -Action $args[0]
+            if ($directAction) {
+                if ($directAction -eq "help") {
+                    # For help action, show concise help menu and then continue to interactive menu
+                    Write-Host "`n📘 GitGo Help Menu"
+                    Write-Host "──────────────────────────────────────────────"
+                    Write-Host "Available Actions:`n"
+                    $helpItems = @(
+                        "1. clone       → Clone a remote repo and configure identity",
+                        "2. push        → Push already committed changes to origin",
+                        "3. pull        → Pull latest changes from origin/main",
+                        "4. adduser     → Set Git username and email for current repo",
+                        "5. showuser    → Display current Git identity",
+                        "6. addremote   → Create a new GitHub repo with README and optional clone",
+                        "7. delremote   → Delete a GitHub repo after confirmation",
+                        "8. remotelist  → List all repos under selected GitHub account",
+                        "9. status      → Show comprehensive repository information",
+                        "10. commit     → Add, commit, and optionally push changes",
+                        "11. history    → View commit history with details",
+                        "12. tokeninfo  → Display token permissions and scopes",
+                        "13. setup      → Configure GitHub accounts and tokens securely",
+                        "14. branch     → Manage branches (list/create/switch/delete)",
+                        "15. remotem    → Manage remote for current repository",
+                        "16. changename → Change name of a GitHub repository",
+                        "17. help       → Show this help and return to prompt (or use: gitgo help)"
+                    )
+                    foreach ($line in $helpItems) { Write-Host "  $line" }
+                    # Don't set skipInteractiveMenu for help - let it continue to interactive menu
+                    # Don't set skipInteractiveMenu for help - let it continue to interactive menu
+                } else {
+                    # For other actions, set the action and skip the interactive menu
+                    $action = $directAction
+                    $skipInteractiveMenu = $true
+                }
+            } else {
+                Write-Host "`n❌ Invalid action: '$($args[0])'"
+                Write-Host "`n📘 Available actions:"
+                Write-Host "  → Use action names: gitgo push, gitgo clone, gitgo setup"
+                Write-Host "  → Use action numbers: gitgo 1, gitgo 2, gitgo 13"
+                Write-Host "  → Use --help for full help menu"
+                Write-Host "  → Use no arguments for interactive menu"
+                exit 1
+            }
         }
     }
 }
@@ -1288,77 +1386,82 @@ function Get-GitRepositoryInfo {
     }
 }
 
-# Display actions in 3 numbered, left-aligned columns
-Write-Host "`n🛠️ Available Actions:`n"
-$columnWidth = 22
-$columns = 3
-$numberedActions = @{}
-for ($i = 0; $i -lt $validActions.Count; $i++) {
-    $numberedActions["$($i + 1)"] = $validActions[$i]
-}
-$actionList = $numberedActions.GetEnumerator() | Sort-Object { [int]$_.Key } | ForEach-Object { "$($_.Key). $($_.Value)" }
-
-for ($i = 0; $i -lt $actionList.Count; $i += $columns) {
-    $row = $actionList[$i..([Math]::Min($i + $columns - 1, $actionList.Count - 1))]
-    $formattedRow = $row | ForEach-Object { $_.PadRight($columnWidth) }
-    Write-Host ("   " + ($formattedRow -join ""))
-}
-
-Write-Host "`nType the action name or number. Type 'q' to quit."
-
-# Dynamically find setup action number
-$setupActionNumber = $numberedActions.GetEnumerator() | Where-Object { $_.Value -eq "setup" } | Select-Object -ExpandProperty Key
-Write-Host "`nFirst time? Run 'setup' ($setupActionNumber) to configure GitHub tokens securely."
-
-# Prompt until valid action or 'q' is entered
-do {
-    $input = Read-Host "`nEnter your action"
-    if ($input -eq "q") {
-        Write-Host "`n👋 Exiting GitGo."
-        exit
-    } elseif (($validActions -contains $input) -or ($numberedActions.ContainsKey($input))) {
-        # Resolve to action name if a number was provided
-        $resolvedAction = if ($numberedActions.ContainsKey($input)) { $numberedActions[$input] } else { $input }
-        if ($resolvedAction -eq "help") {
-            # Inline help that doesn't exit; re-display actions and continue loop
-            Write-Host "`n📘 GitGo Help Menu"
-            Write-Host "──────────────────────────────────────────────"
-            Write-Host "Available Actions:`n"
-            $helpItems = @(
-                "1. clone       → Clone a remote repo and configure identity",
-                "2. push        → Push already committed changes to origin",
-                "3. pull        → Pull latest changes from origin/main",
-                "4. adduser     → Set Git username and email for current repo",
-                "5. showuser    → Display current Git identity",
-                "6. addremote   → Create a new GitHub repo with README and optional clone",
-                "7. delremote   → Delete a GitHub repo after confirmation",
-                "8. remotelist  → List all repos under selected GitHub account",
-                "9. status      → Show comprehensive repository information",
-                "10. commit     → Add, commit, and optionally push changes",
-                "11. history    → View commit history with details",
-                "12. tokeninfo  → Display token permissions and scopes",
-                "13. setup      → Configure GitHub accounts and tokens securely",
-                "14. branch     → Manage branches (list/create/switch/delete)",
-                "15. remotem    → Manage remote for current repository",
-                "16. changename → Change name of a GitHub repository",
-                "17. help       → Show this help and return to prompt"
-            )
-            foreach ($line in $helpItems) { Write-Host "  $line" }
-            Write-Host "`nUsage:"
-            Write-Host "  gitgo         → Launch interactive menu"
-            Write-Host "  gitgo --help  → Show this help menu"
-            Write-Host "`nFirst time setup:"
-            Write-Host "  gitgo setup   → Configure your GitHub tokens"
-            Write-Host "`n(Type an action name/number or 'q' to quit)"
-            $action = $null
-        } else {
-            $action = $resolvedAction
-        }
-    } else {
-        Write-Host "`n❌ Invalid input. Please enter a valid action name, number, or 'q' to quit."
-        $action = $null
+# Check if we should skip the interactive menu (direct action execution)
+if ($skipInteractiveMenu -and $action) {
+    Write-Host "`n⏭️ Skipping interactive menu... "
+} else {
+    # Display actions in 3 numbered, left-aligned columns
+    Write-Host "`n🛠️ Available Actions:`n"
+    $columnWidth = 22
+    $columns = 3
+    $numberedActions = @{}
+    for ($i = 0; $i -lt $validActions.Count; $i++) {
+        $numberedActions["$($i + 1)"] = $validActions[$i]
     }
-} until ($action)
+    $actionList = $numberedActions.GetEnumerator() | Sort-Object { [int]$_.Key } | ForEach-Object { "$($_.Key). $($_.Value)" }
+
+    for ($i = 0; $i -lt $actionList.Count; $i += $columns) {
+        $row = $actionList[$i..([Math]::Min($i + $columns - 1, $actionList.Count - 1))]
+        $formattedRow = $row | ForEach-Object { $_.PadRight($columnWidth) }
+        Write-Host ("   " + ($formattedRow -join ""))
+    }
+
+    Write-Host "`nType the action name or number. Type 'q' to quit."
+
+    # Dynamically find setup action number
+    $setupActionNumber = $numberedActions.GetEnumerator() | Where-Object { $_.Value -eq "setup" } | Select-Object -ExpandProperty Key
+    Write-Host "`nFirst time? Run 'setup' ($setupActionNumber) to configure GitHub tokens securely."
+
+    # Prompt until valid action or 'q' is entered
+    do {
+        $input = Read-Host "`nEnter your action"
+        if ($input -eq "q") {
+            Write-Host "`n👋 Exiting GitGo."
+            exit
+        } elseif (($validActions -contains $input) -or ($numberedActions.ContainsKey($input))) {
+            # Resolve to action name if a number was provided
+            $resolvedAction = if ($numberedActions.ContainsKey($input)) { $numberedActions[$input] } else { $input }
+            if ($resolvedAction -eq "help") {
+                # Inline help that doesn't exit; re-display actions and continue loop
+                Write-Host "`n📘 GitGo Help Menu"
+                Write-Host "──────────────────────────────────────────────"
+                Write-Host "Available Actions:`n"
+                $helpItems = @(
+                    "1. clone       → Clone a remote repo and configure identity",
+                    "2. push        → Push already committed changes to origin",
+                    "3. pull        → Pull latest changes from origin/main",
+                    "4. adduser     → Set Git username and email for current repo",
+                    "5. showuser    → Display current Git identity",
+                    "6. addremote   → Create a new GitHub repo with README and optional clone",
+                    "7. delremote   → Delete a GitHub repo after confirmation",
+                    "8. remotelist  → List all repos under selected GitHub account",
+                    "9. status      → Show comprehensive repository information",
+                    "10. commit     → Add, commit, and optionally push changes",
+                    "11. history    → View commit history with details",
+                    "12. tokeninfo  → Display token permissions and scopes",
+                    "13. setup      → Configure GitHub accounts and tokens securely",
+                    "14. branch     → Manage branches (list/create/switch/delete)",
+                    "15. remotem    → Manage remote for current repository",
+                    "16. changename → Change name of a GitHub repository",
+                    "17. help       → Show this help and return to prompt (or use: gitgo help)"
+                )
+                foreach ($line in $helpItems) { Write-Host "  $line" }
+                Write-Host "`nUsage:"
+                Write-Host "  gitgo         → Launch interactive menu"
+                Write-Host "  gitgo --help  → Show this help menu"
+                Write-Host "`nFirst time setup:"
+                Write-Host "  gitgo setup   → Configure your GitHub tokens"
+                Write-Host "`n(Type an action name/number or 'q' to quit)"
+                $action = $null
+            } else {
+                $action = $resolvedAction
+            }
+        } else {
+            Write-Host "`n❌ Invalid input. Please enter a valid action name, number, or 'q' to quit."
+            $action = $null
+        }
+    } until ($action)
+}
 
 # Function to validate and get account selection
 function Get-ValidAccount {
