@@ -494,6 +494,10 @@ function Set-GitHubTokens {
             }
         } while ($true)
         
+        # Initialize $allAccounts as an ArrayList to manage all accounts (existing + new)
+        $allAccounts = [System.Collections.ArrayList]::new()
+        $allAccounts.AddRange($existingAccounts) # Add existing accounts to the ArrayList
+        
         $newAccounts = @()
         $tokens = @{}
         
@@ -516,6 +520,7 @@ function Set-GitHubTokens {
             
             $email = Read-Host "Enter email for '$accountType' account"
             $username = Read-Host "Enter your GitHub username for '$accountType' account"
+            $localGitName = Read-Host "Enter local Git username (display name) for '$accountType' account"
             $token = Read-Host "Enter your $($accountType.ToUpper()) GitHub token" -AsSecureString
             
             # Convert secure string to plain text
@@ -541,6 +546,7 @@ function Set-GitHubTokens {
                 name = $accountType
                 username = $username
                 email = $email
+                gitName = if ([string]::IsNullOrWhiteSpace($localGitName)) { $username } else { $localGitName }
                 tokenEnvVar = $envVar
             }
             
@@ -553,7 +559,7 @@ function Set-GitHubTokens {
             Write-Host "✅ Account '$accountType' configured successfully!"
             
             # Save to JSON after each account (incremental save)
-            $allAccounts = $existingAccounts + $newAccounts
+            $allAccounts.Add($newAccount) | Out-Null # Add the newly created account to the ArrayList
             $allAccounts | ConvertTo-Json -Depth 3 | Set-Content -Path $accountsConfigPath -Encoding UTF8
             Write-Host "💾 Account information saved to configuration file."
         }
@@ -563,7 +569,7 @@ function Set-GitHubTokens {
         foreach ($envVar in $tokens.Keys) {
             Write-Host "   → $envVar"
         }
-        Write-Host "`n📊 Total accounts: $($existingAccounts.Count + $newAccounts.Count)"
+        Write-Host "`n📊 Total accounts: $($allAccounts.Count)"
         Write-Host "⚠️  Please restart PowerShell for changes to take effect."
         Write-Host "   Or reload environment: refreshenv (if using Chocolatey)"
         
@@ -584,7 +590,7 @@ function Set-GitHubTokens {
 function Update-AccountInformation {
     Write-Host "`n🔄 Update Account Information"
     Write-Host "──────────────────────────────────────────────"
-    Write-Host "This will update the stored username and email for your GitHub accounts."
+    Write-Host "This will update the stored username, email and local git name for your GitHub accounts."
     
     try {
         $accounts = Get-AccountsFromSSHConfig
@@ -596,9 +602,11 @@ function Update-AccountInformation {
             $account = $accounts[$i]
             $username = if ($account.username) { $account.username } else { "(not set)" }
             $email = if ($account.email) { $account.email } else { "(not set)" }
+            $displayName = if ($account.PSObject.Properties.Name -contains 'gitName' -and $account.gitName) { $account.gitName } else { "(not set)" }
             Write-Host "   $($i + 1). $($account.name)"
             Write-Host "      → GitHub Username: $username"
             Write-Host "      → Email: $email"
+            Write-Host "      → Local Git Name: $displayName"
         }
         
         do {
@@ -609,11 +617,14 @@ function Update-AccountInformation {
                 Write-Host "`n📝 Updating information for $($selectedAccount.name) account:"
                 $newUsername = Read-Host "Enter new GitHub username (current: $($selectedAccount.username))"
                 $newEmail = Read-Host "Enter new Git email (current: $($selectedAccount.email))"
+                $currentGitName = if ($selectedAccount.PSObject.Properties.Name -contains 'gitName' -and $selectedAccount.gitName) { $selectedAccount.gitName } else { "(not set)" }
+                $newGitName = Read-Host "Enter new local Git name (current: $currentGitName)"
                 
                 if (-not [string]::IsNullOrWhiteSpace($newUsername) -and -not [string]::IsNullOrWhiteSpace($newEmail)) {
                     # Update the account information
                     $selectedAccount.username = $newUsername
                     $selectedAccount.email = $newEmail
+                    $selectedAccount.gitName = if ([string]::IsNullOrWhiteSpace($newGitName)) { $newUsername } else { $newGitName }
                     
                     # Save updated configuration
                     $accounts | ConvertTo-Json -Depth 3 | Set-Content -Path "$env:USERPROFILE\.gitgo\accounts.json" -Encoding UTF8
@@ -621,6 +632,7 @@ function Update-AccountInformation {
                     Write-Host "`n✅ Account information updated successfully!"
                     Write-Host "   → GitHub Username: $newUsername"
                     Write-Host "   → Email: $newEmail"
+                    if (-not [string]::IsNullOrWhiteSpace($newGitName)) { Write-Host "   → Local Git Name: $newGitName" }
                     Write-Host "   → Changes saved for future use"
                 } else {
                     Write-Host "`n❌ Username and email cannot be empty. Update cancelled."
@@ -1690,7 +1702,7 @@ function Get-ValidVisibility {
 }
 
 # Initialize variables
-$gitName = "Davie"
+$gitName = ""
 $gitEmail = ""
 $githubUser = ""
 $sshAlias = ""
@@ -1705,9 +1717,10 @@ if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist
         $accounts = Get-AccountsFromSSHConfig
         $accountConfig = $accounts | Where-Object { $_.id -eq $account }
 
-        # Get stored username and email from account configuration
+        # Get stored username, email and local git name from account configuration
         $githubUser = $accountConfig.username
         $gitEmail = $accountConfig.email
+        $gitName = if ($accountConfig.PSObject.Properties.Name -contains 'gitName' -and $accountConfig.gitName) { $accountConfig.gitName } else { $githubUser }
         $sshAlias = $null
 
         # If username or email is not stored, prompt user to enter them
@@ -1722,6 +1735,10 @@ if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist
                 $gitEmail = Read-Host "Enter your Git email for this account"
             }
 
+            if ([string]::IsNullOrWhiteSpace($gitName)) {
+                $gitName = Read-Host "Enter your local Git username (display name) for this account"
+            }
+
             # Update the stored configuration
             try {
                 $accounts = Get-AccountsFromJSON
@@ -1729,6 +1746,7 @@ if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist
                 if ($accountToUpdate) {
                     $accountToUpdate.username = $githubUser
                     $accountToUpdate.email = $gitEmail
+                    if ($gitName) { $accountToUpdate.gitName = $gitName }
                     $accounts | ConvertTo-Json -Depth 3 | Set-Content -Path "$env:USERPROFILE\.gitgo\accounts.json" -Encoding UTF8
                     Write-Host "✅ Account information updated and saved for future use." -ForegroundColor Green
                 }
@@ -1939,52 +1957,85 @@ switch ($action) {
                     do {
                         $repoUrl = Read-Host "Enter the GitHub repository URL to clone"
 
-                        # Validate URL format
-                        if ($repoUrl -match "^https://github\.com/([^/]+)/([^/]+)$") {
+                        # Validate URL format (supports HTTPS/SSH; optional .git and trailing slash)
+                        $isHttps = $false
+                        $isSsh = $false
+                        if ($repoUrl -match "^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$") {
+                            $isHttps = $true
                             $repoOwner = $matches[1]
                             $repoName = $matches[2]
+                        } elseif ($repoUrl -match "^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$") {
+                            $isSsh = $true
+                            $repoOwner = $matches[1]
+                            $repoName = $matches[2]
+                        }
 
-                            # Remove any trailing .git or # from repo name
+                        if ($isHttps -or $isSsh) {
+                            # Normalize repo name (strip .git or trailing # if present)
                             $repoName = $repoName -replace '\.git$', '' -replace '#$', ''
 
                             Write-Host "`n🔍 Repository details:"
                             Write-Host "   → Owner: $repoOwner"
                             Write-Host "   → Name: $repoName"
 
-                            # Check if repository exists
+                            # Build headers for authenticated API requests (supports org/private repos)
+                            $headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = "GitGo-PowerShell-Script" }
+                            if ($tokenPlain) { $headers["Authorization"] = "Bearer $tokenPlain" }
+
+                            # Prefer HTTPS clone URL; SSH left as-is if provided
+                            $cloneUrl = if ($isSsh) { "git@github.com:$repoOwner/$repoName.git" } else { "https://github.com/$repoOwner/$repoName.git" }
+
+                            # Check repo via API; on 404, attempt git ls-remote as a fallback access check
                             Write-Host "`n🔍 Checking if repository exists..."
+                            $proceedToClone = $false
                             try {
                                 $checkUrl = "https://api.github.com/repos/$repoOwner/$repoName"
-                                $existingRepo = Invoke-RestMethod -Uri $checkUrl -Method Get -ErrorAction Stop -TimeoutSec 10
+                                $existingRepo = Invoke-RestMethod -Uri $checkUrl -Method Get -Headers $headers -ErrorAction Stop -TimeoutSec 10
                                 Write-Host "✅ Repository found!"
                                 Write-Host "   → Visibility: $(if ($existingRepo.private) { 'Private' } else { 'Public' })"
                                 Write-Host "   → Description: $(if ($existingRepo.description) { $existingRepo.description } else { 'No description' })"
                                 Write-Host "   → Last updated: $([DateTime]$existingRepo.updated_at)"
-
-                                $shouldClone = Get-ValidYesNo "Proceed with cloning this repository?" "y"
-                                if (-not $shouldClone) {
-                                    Write-Host "🚫 Clone cancelled by user."
-                                    return
+                                $proceedToClone = $true
+                            } catch {
+                                if ($_.Exception.Response -and ($_.Exception.Response.StatusCode.value__ -eq 404)) {
+                                    Write-Host "❌ Repository not found via API or access denied"
+                                    Write-Host "   → Trying direct access check with git ls-remote..."
+                                    try {
+                                        $null = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never ls-remote $cloneUrl 2>&1
+                                        if ($LASTEXITCODE -eq 0) {
+                                            Write-Host "✅ Access confirmed via ls-remote."
+                                            $proceedToClone = $true
+                                        } else {
+                                            Write-Host "❌ Unable to access repository with provided credentials."
+                                            $proceedToClone = $false
+                                        }
+                                    } catch {
+                                        Write-Host "❌ ls-remote failed: $($_.Exception.Message)"
+                                        $proceedToClone = $false
+                                    }
+                                } else {
+                                    Write-Host "⚠️ API check error: $($_.Exception.Message)"
+                                    Write-Host "   → Proceeding with clone attempt anyway..."
+                                    $proceedToClone = $true
                                 }
+                            }
 
-                                # Clone using HTTPS (works for public repos, private repos need authentication)
-                                $cloneUrl = "https://github.com/$repoOwner/$repoName.git"
+                            if ($proceedToClone) {
+                                $shouldClone = Get-ValidYesNo "Proceed with cloning this repository?" "y"
+                                if (-not $shouldClone) { Write-Host "🚫 Clone cancelled by user."; return }
+
                                 Write-Host "`n🔍 Cloning from: $cloneUrl"
-
                                 try {
                                     $cloneOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never clone $cloneUrl 2>&1
                                     Write-Host $cloneOutput
-
                                     if (Test-Path $repoName) {
                                         Set-Location $repoName
                                         git config user.name "$gitName"
                                         git config user.email "$gitEmail"
-
                                         Write-Host "`n✅ Repo cloned and configured:"
                                         Write-Host "  → Remote: $cloneUrl"
                                         Write-Host "  → Git user.name: $gitName"
                                         Write-Host "  → Git user.email: $gitEmail"
-
                                         # Post-clone actions
                                         Write-Host "`n📂 Post-clone actions:"
                                         Write-Host "   1) Open repo in File Explorer"
@@ -1993,48 +2044,23 @@ switch ($action) {
                                         do {
                                             $postCloneChoice = Read-Host "Enter your choice (1-3)"
                                             switch ($postCloneChoice) {
-                                                "1" {
-                                                    Write-Host "🔍 Opening File Explorer..."
-                                                    Start-Process "explorer.exe" -ArgumentList "."
-                                                    $validPostCloneChoice = $true
-                                                }
-                                                "2" {
-                                                    Write-Host "💻 Opening VS Code..."
-                                                    Start-Process "code" -ArgumentList "."
-                                                    $validPostCloneChoice = $true
-                                                }
-                                                "3" {
-                                                    Write-Host "⏭️ Skipping post-clone actions."
-                                                    $validPostCloneChoice = $true
-                                                }
-                                                default {
-                                                    Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."
-                                                    $validPostCloneChoice = $false
-                                                }
+                                                "1" { Write-Host "🔍 Opening File Explorer..."; Start-Process "explorer.exe" -ArgumentList "."; $validPostCloneChoice = $true }
+                                                "2" { Write-Host "💻 Opening VS Code..."; Start-Process "code" -ArgumentList "."; $validPostCloneChoice = $true }
+                                                "3" { Write-Host "⏭️ Skipping post-clone actions."; $validPostCloneChoice = $true }
+                                                default { Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."; $validPostCloneChoice = $false }
                                             }
                                         } while (-not $validPostCloneChoice)
                                     } else {
                                         Write-Host "`n⚠️ Clone succeeded but folder '$repoName' not found."
                                     }
-                                } catch {
-                                    Write-Host "`n❌ Error during clone:"
-                                    Write-Host $_.Exception.Message
-                                }
+                                } catch { Write-Host "`n❌ Error during clone:"; Write-Host $_.Exception.Message }
                                 $validRepoUrl = $true
-                            } catch {
-                                if ($_.Exception.Response.StatusCode -eq 404) {
-                                    Write-Host "❌ Repository not found or access denied"
-                                    Write-Host "   → Please check the URL and try again"
-                                    $validRepoUrl = $false
-                                } else {
-                                    Write-Host "❌ Error checking repository: $($_.Exception.Message)"
-                                    Write-Host "   → Proceeding with clone attempt anyway..."
-                                    $validRepoUrl = $true
-                                }
+                            } else {
+                                $validRepoUrl = $false
                             }
                         } else {
                             Write-Host "❌ Invalid GitHub URL format"
-                            Write-Host "   → Please use format: https://github.com/username/repository"
+                            Write-Host "   → Use https://github.com/<owner>/<repo> or git@github.com:<owner>/<repo>"
                             $validRepoUrl = $false
                         }
                     } while (-not $validRepoUrl)
