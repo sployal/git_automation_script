@@ -176,10 +176,98 @@ Host {alias}
     print(f"✅ Account information saved to: {accounts_config_path}")
 
 class GitGo:
+    def handle_changename(self, account, token, github_user):
+        """Change the name of a GitHub repository for a chosen account"""
+        headers = {
+            'Authorization': f'Bearer {token}',
+            'Accept': 'application/vnd.github+json',
+            'User-Agent': 'GitGo-Python-Script'
+        }
+        old_name = safe_input("Enter the current repository name: ").strip()
+        new_name = safe_input("Enter the new repository name: ").strip()
+        if not old_name or not new_name:
+            print("❌ Both old and new names are required.")
+            return
+        url = f"https://api.github.com/repos/{github_user}/{old_name}"
+        data = {"name": new_name}
+        try:
+            response = requests.patch(url, headers=headers, json=data, timeout=20)
+            if response.status_code == 200:
+                print(f"✅ Repository renamed to '{new_name}'.")
+                print(f"   → New URL: {response.json().get('html_url')}")
+            else:
+                print(f"❌ Failed to rename repository: {response.status_code} {response.text}")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+    def handle_help(self):
+        """Show the help menu and return to prompt"""
+        self.show_help()
+    def handle_branch(self):
+        """Manage local git branches: list, create, switch, delete"""
+        if not self.is_git_repo():
+            print("\n❌ Not a Git repository. Initialize with 'git init' first.")
+            return
+        while True:
+            print("\n🌿 Branch Management")
+            print("──────────────────────────────────────────────")
+            print("1. List branches")
+            print("2. Create new branch")
+            print("3. Switch branch")
+            print("4. Delete branch")
+            print("5. Exit branch menu")
+            choice = safe_input("\nEnter your choice (1-5): ").strip()
+            if choice == "1":
+                # List branches
+                out, _, _ = self.run_git_command(["branch"], check=False)
+                print("\nAvailable branches:")
+                print(out)
+            elif choice == "2":
+                # Create new branch
+                new_branch = safe_input("Enter new branch name: ").strip()
+                if new_branch:
+                    out, err, code = self.run_git_command(["branch", new_branch], check=False)
+                    if code == 0:
+                        print(f"✅ Branch '{new_branch}' created.")
+                    else:
+                        print(f"❌ Failed to create branch: {err}")
+            elif choice == "3":
+                # Switch branch
+                target_branch = safe_input("Enter branch name to switch to: ").strip()
+                if target_branch:
+                    out, err, code = self.run_git_command(["checkout", target_branch], check=False)
+                    if code == 0:
+                        print(f"✅ Switched to branch '{target_branch}'.")
+                    else:
+                        print(f"❌ Failed to switch branch: {err}")
+            elif choice == "4":
+                # Delete branch
+                del_branch = safe_input("Enter branch name to delete: ").strip()
+                if del_branch:
+                    out, err, code = self.run_git_command(["branch", "-d", del_branch], check=False)
+                    if code == 0:
+                        print(f"✅ Branch '{del_branch}' deleted.")
+                    else:
+                        # Try force delete if normal delete fails
+                        confirm = safe_input("Delete failed. Force delete? (y/n): ").strip().lower()
+                        if confirm == "y":
+                            out, err, code = self.run_git_command(["branch", "-D", del_branch], check=False)
+                            if code == 0:
+                                print(f"✅ Branch '{del_branch}' force deleted.")
+                            else:
+                                print(f"❌ Force delete failed: {err}")
+                        else:
+                            print("❌ Delete cancelled.")
+            elif choice == "5":
+                print("Exiting branch menu.")
+                break
+            else:
+                print("❌ Invalid choice. Please enter 1, 2, 3, 4, or 5.")
     def __init__(self):
         self.valid_actions = [
             "clone", "push", "pull", "adduser", "showuser", "addremote", 
-            "remotelist", "delremote", "status", "commit", "history", "tokeninfo", "setup", "ssh-setup"
+            "delremote", "remotelist", "status", "commit", "history", "tokeninfo", "setup",
+            "branch", "remotem", "changename", "help"
         ]
         self.numbered_actions = {str(i+1): action for i, action in enumerate(self.valid_actions)}
         
@@ -246,8 +334,11 @@ class GitGo:
             "10. commit     → Add, commit, and optionally push changes",
             "11. history    → View commit history with details",
             "12. tokeninfo  → Display token permissions and scopes",
-            "13. setup      → Configure GitHub tokens securely",
-            "14. ssh-setup  → Configure SSH keys for multiple GitHub accounts"
+            "13. setup      → Configure GitHub accounts and tokens securely",
+            "14. branch     → Manage branches (list/create/switch/delete)",
+            "15. remotem    → Manage remote for current repository",
+            "16. changename → Change name of a GitHub repository",
+            "17. help       → Show this help and return to prompt (or use: gitgo help)"
         ]
 
         for line in help_items:
@@ -842,9 +933,8 @@ class GitGo:
             formatted_row = [item.ljust(column_width) for item in row]
             print("   " + "".join(formatted_row))
 
-        print("\nType the action name or number. Type 'q' to quit.")
-        print("\nFirst time? Run 'setup' (13) to configure GitHub tokens securely.")
-        print("Need SSH keys? Run 'ssh-setup' to configure SSH keys for multiple GitHub accounts.")
+    print("\nType the action name or number. Type 'q' to quit.")
+    print("\nFirst time? Run 'setup' (13) to configure GitHub accounts and tokens securely.")
 
     def get_action_input(self):
         """Get and validate action input"""
@@ -1439,8 +1529,6 @@ class GitGo:
         # Execute the selected action
         if action == "setup":
             self.setup_menu()
-        elif action == "ssh-setup":
-            generate_github_ssh_keys_and_config()
         elif action == "clone":
             self.handle_clone(account, github_user, ssh_alias, git_email)
         elif action == "push":
@@ -1471,9 +1559,15 @@ class GitGo:
                 self.test_github_token_scopes(token, account)
             except ValueError as e:
                 print(str(e))
+        elif action == "branch":
+            self.handle_branch()
+        elif action == "changename":
+            self.handle_changename(account, token, github_user)
+        elif action == "help":
+            self.handle_help()
         else:
             print("\n❌ Invalid action. Please enter one of the following:")
-            print("   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup / ssh-setup")
+            print("   → clone / push / pull / adduser / showuser / addremote / delremote / remotelist / status / commit / history / tokeninfo / setup / branch / remotem / changename / help")
 
 
 if __name__ == "__main__":
