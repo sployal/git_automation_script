@@ -1109,17 +1109,15 @@ function Invoke-GitCommit {
             if ($line.Length -ge 3) {
                 $status = $line.Substring(0, 2)
                 $file = $line.Substring(3)
-                
                 $statusIcon = switch ($status.Trim()) {
-                    "M" { "📝" }   # Modified
-                    "A" { "➕" }   # Added
-                    "D" { "🗑️" }   # Deleted
-                    "R" { "🔄" }   # Renamed
-                    "C" { "📋" }   # Copied
-                    "??" { "❓" }  # Untracked
+                    "M" { "📝" }
+                    "A" { "➕" }
+                    "D" { "🗑️" }
+                    "R" { "🔄" }
+                    "C" { "📋" }
+                    "??" { "❓" }
                     default { "📄" }
                 }
-                
                 Write-Host "      $statusIcon $file"
             }
         }
@@ -1131,7 +1129,6 @@ function Invoke-GitCommit {
     Write-Host "   2. All tracked files (git add -u)"
     Write-Host "   3. Specific files (manual selection)"
     Write-Host "   4. Interactive staging (git add -p)"
-    
     do {
         $addChoice = Read-Host "`nEnter your choice (1-4)"
         switch ($addChoice) {
@@ -1152,7 +1149,7 @@ function Invoke-GitCommit {
                 $files = Read-Host "Files to add"
                 if (-not [string]::IsNullOrWhiteSpace($files)) {
                     Write-Host "`n➕ Adding specified files..."
-                    $fileArray = $files -split '\s+' | Where-Object { $_.Trim() -ne "" }
+                    $fileArray = $files -split '\\s+' | Where-Object { $_.Trim() -ne "" }
                     foreach ($file in $fileArray) {
                         git add $file
                     }
@@ -1191,7 +1188,6 @@ function Invoke-GitCommit {
     Write-Host "   1. Enter custom message"
     Write-Host "   2. Use template message"
     Write-Host "   3. Amend previous commit"
-    
     do {
         $msgChoice = Read-Host "`nEnter your choice (1-3)"
         switch ($msgChoice) {
@@ -1208,12 +1204,11 @@ function Invoke-GitCommit {
                 Write-Host "`n📋 Available templates:"
                 Write-Host "   1. feat: add new feature"
                 Write-Host "   2. fix: bug fix"
-                Write-Host "   3. docs: update documentation"  
+                Write-Host "   3. docs: update documentation"
                 Write-Host "   4. style: formatting changes"
                 Write-Host "   5. refactor: code refactoring"
                 Write-Host "   6. test: add or update tests"
                 Write-Host "   7. chore: maintenance tasks"
-                
                 $templateChoice = Read-Host "Select template (1-7)"
                 $templates = @{
                     "1" = "feat: "
@@ -1224,7 +1219,6 @@ function Invoke-GitCommit {
                     "6" = "test: "
                     "7" = "chore: "
                 }
-                
                 if ($templates.ContainsKey($templateChoice)) {
                     $templatePrefix = $templates[$templateChoice]
                     $customPart = Read-Host "Complete the message: '$templatePrefix'"
@@ -1239,8 +1233,6 @@ function Invoke-GitCommit {
                 Write-Host "`n🔄 Amending previous commit..."
                 git commit --amend
                 Write-Host "✅ Commit amended successfully!"
-                
-                # Ask about pushing
                 $currentBranch = Get-CurrentGitBranch
                 if ($currentBranch -and (Get-ValidYesNo "🚀 Push amended commit to origin/$currentBranch? (Note: This will force push)")) {
                     git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push origin $currentBranch --force-with-lease
@@ -1262,32 +1254,21 @@ function Invoke-GitCommit {
         Write-Host "✅ Commit successful!"
         Write-Host "   → Message: $commitMsg"
         Write-Host "   → Added: $addAction"
-        
-        # Show commit hash
         $commitHash = git rev-parse --short HEAD
         Write-Host "   → Commit hash: $commitHash"
-
-        # After commit: ensure remote and optionally push
         $currentBranch = Get-CurrentGitBranch
         if ($currentBranch) {
-            # Check if remote 'origin' exists
             $remoteExists = git remote | Where-Object { $_ -eq "origin" }
             if (-not $remoteExists) {
                 Write-Host "`n🔗 No remote configured. Let's set one up to push your changes."
-                # Reuse account selection helper
                 $account = Get-ValidAccount
                 $accounts = Get-AccountsFromSSHConfig
                 $accountConfig = $accounts | Where-Object { $_.id -eq $account }
-                
-                # Get stored username and email from account configuration
                 $githubUser = $accountConfig.username
                 $gitEmail = $accountConfig.email
                 $sshAlias = $null
-                
-                # If username or email is not stored, prompt user to enter them
                 if ([string]::IsNullOrWhiteSpace($githubUser) -or [string]::IsNullOrWhiteSpace($gitEmail)) {
                     Write-Host "`n⚠️ Username or email not found for $($accountConfig.name) account." -ForegroundColor DarkYellow
-                    
                     if ([string]::IsNullOrWhiteSpace($githubUser)) {
                         $githubUser = Read-Host "Enter your GitHub username for this account"
                     }
@@ -1299,16 +1280,21 @@ function Invoke-GitCommit {
                     Write-Host "   → GitHub Username: $githubUser" -ForegroundColor Cyan
                     Write-Host "   → Email: $gitEmail" -ForegroundColor Cyan
                 }
-
                 $repoName = Read-Host "Enter the repository name to push to"
                 $remoteUrl = "https://github.com/${githubUser}/${repoName}.git"
                 git remote add origin $remoteUrl
                 Write-Host "🔗 Remote 'origin' added: $remoteUrl"
             }
-
+            # --- Ensure authentication header is set up for push (fix) ---
+            try {
+                $tokenPlain = Get-GitHubToken -Account $account
+                $basicHeader = "Authorization: Basic " + [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes(("$githubUser`:$tokenPlain")))
+            } catch {
+                Write-Host $_.Exception.Message
+                return
+            }
             $shouldPush = Get-ValidYesNo "🚀 Push commit to origin/$currentBranch?"
             if ($shouldPush) {
-                # Choose push mode
                 Write-Host "`n📤 Push options:"
                 Write-Host "   1) Normal push"
                 Write-Host "   2) Force push (with lease)"
@@ -1322,34 +1308,55 @@ function Invoke-GitCommit {
                         default { Write-Host "❌ Invalid choice. Please enter 1, 2, or 3."; $validCommitPushChoice = $false }
                     }
                 } while (-not $validCommitPushChoice)
-
-                # Check if upstream is set
+                
+                # Ensure Git identity is configured before pushing
+                git config user.name "$gitName"
+                git config user.email "$gitEmail"
+                
                 $upstreamExists = git rev-parse --abbrev-ref "$currentBranch@{upstream}" 2>$null
                 if (-not $upstreamExists) {
                     if ($commitForceMode -eq "with-lease") {
                         Write-Host "🔗 Setting upstream and force pushing (with lease)..."
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force-with-lease origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force-with-lease origin $currentBranch 2>&1
                     } elseif ($commitForceMode -eq "force") {
                         Write-Host "🔗 Setting upstream and force pushing (without lease)..."
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force origin $currentBranch 2>&1
                     } else {
                         Write-Host "🔗 Setting upstream and pushing..."
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u origin $currentBranch 2>&1
                     }
                 } else {
                     if ($commitForceMode -eq "with-lease") {
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force-with-lease origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force-with-lease origin $currentBranch 2>&1
                     } elseif ($commitForceMode -eq "force") {
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force origin $currentBranch 2>&1
                     } else {
-                        git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push origin $currentBranch
+                        $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push origin $currentBranch 2>&1
                     }
                 }
-                Write-Host "✅ Changes pushed successfully!"
+                
+                # Show raw push output
+                if ($pushOutput) { Write-Host $pushOutput }
+                
+                # Determine repo name if not set earlier
+                if ([string]::IsNullOrWhiteSpace($repoName)) {
+                    try {
+                        $remoteUrl = git config --get remote.origin.url 2>$null
+                        if ($remoteUrl -and ($remoteUrl -match '/([^/]+?)(?:\.git)?$')) {
+                            $repoName = $matches[1]
+                        }
+                    } catch {}
+                }
+                
+                # Final success summary (consistent with push action)
+                Write-Host "`n✅ Push complete using '$account' identity:"
+                if (-not [string]::IsNullOrWhiteSpace($repoName)) { Write-Host "  → Repo: $repoName" }
+                Write-Host "  → Branch: $currentBranch"
+                Write-Host "  → Remote: origin (HTTPS)"
+                Write-Host "  → Git user.name: $gitName"
+                Write-Host "  → Git user.email: $gitEmail"
             }
         }
-
-        # Post-commit actions
         Write-Host "`n📂 Post-commit actions:"
         Write-Host "   1) Open repo in File Explorer"
         Write-Host "   2) Open repo in VS Code"
@@ -1377,7 +1384,6 @@ function Invoke-GitCommit {
                 }
             }
         } while (-not $validPostChoice)
-        
     } catch {
         Write-Host "❌ Commit failed: $($_.Exception.Message)"
     }
@@ -1424,16 +1430,16 @@ function Show-GitHistory {
             foreach ($commit in $commits) {
                 Write-Host "   $commit"
             }
-            
+
             # Show detailed view option
             Write-Host "`n🔍 View options:"
             Write-Host "   1. Show detailed commit info"
             Write-Host "   2. Show file changes for a specific commit"
             Write-Host "   3. Show commit statistics"
             Write-Host "   4. Exit history view"
-            
+
             $viewChoice = Read-Host "`nEnter your choice (1-4, default: 4)"
-            
+
             switch ($viewChoice) {
                 "1" {
                     Write-Host "`n📋 Detailed commit information:`n"
@@ -1529,7 +1535,7 @@ function Get-GitRepositoryInfo {
                 if ($line.Length -ge 3) {
                     $status = $line.Substring(0, 2)
                     $file = $line.Substring(3)
-                    
+
                     $statusIcon = switch ($status.Trim()) {
                         "M" { "📝" }   # Modified
                         "A" { "➕" }   # Added
@@ -1539,7 +1545,7 @@ function Get-GitRepositoryInfo {
                         "??" { "❓" }  # Untracked
                         default { "📄" }
                     }
-                    
+
                     Write-Host "      $statusIcon $file"
                 }
             }
@@ -1646,16 +1652,16 @@ if ($skipInteractiveMenu -and $action) {
 function Get-ValidAccount {
     try {
         $accounts = Get-AccountsFromSSHConfig
-        
+
         Write-Host "`n👤 Available GitHub Accounts:"
         Write-Host "──────────────────────────────────────────────"
-        
+
         for ($i = 0; $i -lt $accounts.Count; $i++) {
             $account = $accounts[$i]
             $shownUser = if ($account.username) { $account.username } else { "" }
             Write-Host "   $($i + 1). $($account.name) ($shownUser)"
         }
-        
+
         do {
             $choice = Read-Host "`nEnter your choice (1-$($accounts.Count))"
             if ([int]::TryParse($choice, [ref]$null) -and [int]$choice -ge 1 -and [int]$choice -le $accounts.Count) {
@@ -1693,29 +1699,29 @@ $remoteUrl = ""
 $tokenPlain = ""
 
 # Handle account setup for relevant actions
-if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist", "tokeninfo", "changename")) {
+if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist", "tokeninfo", "changename", "commit")) {
     try {
         $account = Get-ValidAccount
         $accounts = Get-AccountsFromSSHConfig
         $accountConfig = $accounts | Where-Object { $_.id -eq $account }
-        
+
         # Get stored username and email from account configuration
         $githubUser = $accountConfig.username
         $gitEmail = $accountConfig.email
         $sshAlias = $null
-        
+
         # If username or email is not stored, prompt user to enter them
         if ([string]::IsNullOrWhiteSpace($githubUser) -or [string]::IsNullOrWhiteSpace($gitEmail)) {
             Write-Host "`n⚠️ Username or email not found for $($accountConfig.name) account." -ForegroundColor DarkYellow
             Write-Host "   → This may happen if the account was set up before this feature was added." -ForegroundColor DarkYellow
-            
+
             if ([string]::IsNullOrWhiteSpace($githubUser)) {
                 $githubUser = Read-Host "Enter your GitHub username for this account"
             }
             if ([string]::IsNullOrWhiteSpace($gitEmail)) {
                 $gitEmail = Read-Host "Enter your Git email for this account"
             }
-            
+
             # Update the stored configuration
             try {
                 $accounts = Get-AccountsFromJSON
@@ -1734,7 +1740,7 @@ if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist
             Write-Host "   → GitHub Username: $githubUser" -ForegroundColor Cyan
             Write-Host "   → Email: $gitEmail" -ForegroundColor Cyan
         }
-        
+
         # Securely retrieve token from environment variables
         try {
             $tokenPlain = Get-GitHubToken -Account $account
@@ -1761,7 +1767,7 @@ switch ($action) {
         Write-Host "   5) Add GitGo to Windows PATH"
         Write-Host "   6) Remove GitGo from Windows PATH"
         Write-Host "   7) Exit"
-        
+
         do {
             $setupChoice = Read-Host "`nEnter your choice (1-7)"
             switch ($setupChoice) {
@@ -1826,7 +1832,7 @@ switch ($action) {
         Write-Host "`n🔀 Clone Options:"
         Write-Host "   1) Clone by repository name (from your account)"
         Write-Host "   2) Clone from URL (any GitHub repository)"
-        
+
         do {
             $cloneChoice = Read-Host "`nEnter your choice (1-2)"
             switch ($cloneChoice) {
@@ -1843,7 +1849,7 @@ switch ($action) {
                             Accept        = "application/vnd.github+json"
                             "User-Agent"  = "GitGo-PowerShell-Script"
                         }
-                        
+
                         $checkUrl = "https://api.github.com/repos/$githubUser/$repoName"
                         try {
                             $existingRepo = Invoke-RestMethod -Uri $checkUrl -Method Get -Headers $headers -ErrorAction Stop -TimeoutSec 10
@@ -1851,7 +1857,7 @@ switch ($action) {
                             Write-Host "   → Visibility: $(if ($existingRepo.private) { 'Private' } else { 'Public' })"
                             Write-Host "   → Description: $(if ($existingRepo.description) { $existingRepo.description } else { 'No description' })"
                             Write-Host "   → Last updated: $([DateTime]$existingRepo.updated_at)"
-                            
+
                             $shouldClone = Get-ValidYesNo "Proceed with cloning this repository?" "y"
                             if (-not $shouldClone) {
                                 Write-Host "🚫 Clone cancelled by user."
@@ -1929,22 +1935,22 @@ switch ($action) {
                     # Option 2: Clone from any GitHub URL
                     Write-Host "`n🌐 Clone from any GitHub repository URL"
                     Write-Host "   → Example: https://github.com/username/repository"
-                    
+
                     do {
                         $repoUrl = Read-Host "Enter the GitHub repository URL to clone"
-                        
+
                         # Validate URL format
                         if ($repoUrl -match "^https://github\.com/([^/]+)/([^/]+)$") {
                             $repoOwner = $matches[1]
                             $repoName = $matches[2]
-                            
+
                             # Remove any trailing .git or # from repo name
                             $repoName = $repoName -replace '\.git$', '' -replace '#$', ''
-                            
+
                             Write-Host "`n🔍 Repository details:"
                             Write-Host "   → Owner: $repoOwner"
                             Write-Host "   → Name: $repoName"
-                            
+
                             # Check if repository exists
                             Write-Host "`n🔍 Checking if repository exists..."
                             try {
@@ -1954,17 +1960,17 @@ switch ($action) {
                                 Write-Host "   → Visibility: $(if ($existingRepo.private) { 'Private' } else { 'Public' })"
                                 Write-Host "   → Description: $(if ($existingRepo.description) { $existingRepo.description } else { 'No description' })"
                                 Write-Host "   → Last updated: $([DateTime]$existingRepo.updated_at)"
-                                
+
                                 $shouldClone = Get-ValidYesNo "Proceed with cloning this repository?" "y"
                                 if (-not $shouldClone) {
                                     Write-Host "🚫 Clone cancelled by user."
                                     return
                                 }
-                                
+
                                 # Clone using HTTPS (works for public repos, private repos need authentication)
                                 $cloneUrl = "https://github.com/$repoOwner/$repoName.git"
                                 Write-Host "`n🔍 Cloning from: $cloneUrl"
-                                
+
                                 try {
                                     $cloneOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never clone $cloneUrl 2>&1
                                     Write-Host $cloneOutput
@@ -2068,7 +2074,6 @@ switch ($action) {
                     Write-Host "   → $($line.Substring(3))"
                 }
             }
-            
             $shouldContinue = Get-ValidYesNo "Continue pushing without committing these changes?"
             if (-not $shouldContinue) {
                 Write-Host "🚫 Push cancelled. Commit your changes first or use the 'commit' action."
@@ -2141,21 +2146,21 @@ switch ($action) {
             if (-not $upstreamExists) {
                 if ($pushMode -eq "with-lease") {
                     Write-Host "🔗 Setting upstream and force pushing (with lease)..."
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push -u --force-with-lease origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force-with-lease origin $currentBranch 2>&1
                 } elseif ($pushMode -eq "force") {
                     Write-Host "🔗 Setting upstream and force pushing (without lease)..."
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push -u --force origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u --force origin $currentBranch 2>&1
                 } else {
                     Write-Host "🔗 Setting upstream and pushing..."
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push -u origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push -u origin $currentBranch 2>&1
                 }
             } else {
                 if ($pushMode -eq "with-lease") {
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push --force-with-lease origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force-with-lease origin $currentBranch 2>&1
                 } elseif ($pushMode -eq "force") {
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push --force origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push --force origin $currentBranch 2>&1
                 } else {
-                    $pushOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never push origin $currentBranch 2>&1
+                    $pushOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never push origin $currentBranch 2>&1
                 }
             }
             Write-Host $pushOutput
@@ -2197,12 +2202,12 @@ switch ($action) {
                     Write-Host "   → $($line.Substring(3))"
                 }
             }
-            
+
             Write-Host "`n🎯 Options:"
             Write-Host "   1. Stash changes and pull"
             Write-Host "   2. Continue pulling (may cause conflicts)"
             Write-Host "   3. Cancel pull"
-            
+
             do {
                 $pullChoice = Read-Host "Enter your choice (1-3)"
                 switch ($pullChoice) {
@@ -2235,9 +2240,9 @@ switch ($action) {
             $upstreamExists = git rev-parse --abbrev-ref "$currentBranch@{upstream}" 2>$null
             if (-not $upstreamExists) {
                 Write-Host "🔗 No upstream set. Trying to pull from origin/$currentBranch..."
-                $pullOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never pull origin $currentBranch 2>&1
+                $pullOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never pull origin $currentBranch 2>&1
             } else {
-                $pullOutput = git -c http.extraheader="Authorization: Bearer $tokenPlain" -c credential.helper= -c credential.interactive=never pull 2>&1
+                $pullOutput = git -c http.extraheader="$basicHeader" -c credential.helper= -c credential.interactive=never pull 2>&1
             }
             
             Write-Host $pullOutput
