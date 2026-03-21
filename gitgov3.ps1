@@ -2107,29 +2107,56 @@ switch ($action) {
             }
         }
 
-        # Ask for repository name (with auto-detection option)
+        # Ask for repository target (repo name, owner/repo, or full URL)
         $detectedRepo = $null
+        $detectedOwner = $null
+        $detectedRemoteUrl = $null
         try {
-            $remoteUrl = git config --get remote.origin.url 2>$null
-            if ($remoteUrl) {
-                if ($remoteUrl -match '/([^/]+?)(?:\.git)?$') {
+            $detectedRemoteUrl = git config --get remote.origin.url 2>$null
+            if ($detectedRemoteUrl) {
+                if ($detectedRemoteUrl -match '/([^/]+?)(?:\.git)?$') {
                     $detectedRepo = $matches[1]
+                }
+                if ($detectedRemoteUrl -match 'github\.com[:/]+([^/]+)/[^/]+(?:\.git)?/?$') {
+                    $detectedOwner = $matches[1]
                 }
             }
         } catch {}
 
+        $repoInput = $null
         if ($detectedRepo) {
             $useDetected = Get-ValidYesNo "Use detected repository name '$detectedRepo'?" "y"
             if ($useDetected) {
-                $repoName = $detectedRepo
+                $repoInput = if ($detectedOwner) { "$detectedOwner/$detectedRepo" } else { $detectedRepo }
             } else {
-                $repoName = Read-Host "Enter the repository name to push to"
+                $repoInput = Read-Host "Enter repository target (repo, owner/repo, or full URL)"
             }
         } else {
-            $repoName = Read-Host "Enter the repository name to push to"
+            $repoInput = Read-Host "Enter repository target (repo, owner/repo, or full URL)"
         }
 
-        $remoteUrl = "https://github.com/${githubUser}/${repoName}.git"
+        # Normalize all accepted target formats into a canonical HTTPS URL
+        if ($repoInput -match '^(https?://github\.com/[^/]+/[^/]+?)(?:\.git)?/?$') {
+            $remoteUrl = "$($matches[1]).git"
+        } elseif ($repoInput -match '^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$') {
+            $remoteUrl = "https://github.com/$($matches[1])/$($matches[2]).git"
+        } elseif ($repoInput -match '^([^/\s]+)/([^/\s]+)$') {
+            $remoteUrl = "https://github.com/$($matches[1])/$($matches[2]).git"
+        } elseif ($repoInput -match '^[^/\s]+$') {
+            $remoteUrl = "https://github.com/${githubUser}/${repoInput}.git"
+        } else {
+            Write-Host "`n❌ Invalid repository target."
+            Write-Host "   → Use one of: repo-name, owner/repo, https://github.com/owner/repo(.git), git@github.com:owner/repo(.git)"
+            return
+        }
+
+        if ($remoteUrl -match 'github\.com/([^/]+)/([^/]+?)(?:\.git)?$') {
+            $repoOwner = $matches[1]
+            $repoName = $matches[2]
+        } else {
+            $repoOwner = $githubUser
+            $repoName = $repoInput
+        }
 
         # Configure Git identity
         git config user.name "$gitName"
@@ -2190,9 +2217,12 @@ switch ($action) {
                 }
             }
             Write-Host $pushOutput
+            if ($LASTEXITCODE -ne 0) {
+                throw "Git push failed. See output above for details."
+            }
 
             Write-Host "`n✅ Push complete using '$account' identity:"
-            Write-Host "  → Repo: $repoName"
+            Write-Host "  → Repo: $repoOwner/$repoName"
             Write-Host "  → Branch: $currentBranch"
             Write-Host "  → Remote: origin (HTTPS)"
             Write-Host "  → Git user.name: $gitName"
