@@ -484,7 +484,7 @@ function Set-GitHubTokens {
         
         # Get number of new accounts to add
         do {
-            $count = Read-Host "How many new GitHub accounts do you want to add? (Max: 3 total)"
+            $count = Read-Host "How many new GitHub accounts do you want to add? (Max: 3 /session)"
             if (-not [int]::TryParse($count, [ref]$null) -or [int]$count -lt 1) {
                 Write-Host "❌ Please enter a valid number greater than 0."
             } elseif ([int]$count + $existingAccounts.Count -gt 3) {
