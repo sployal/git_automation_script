@@ -237,8 +237,8 @@ if ($args.Count -gt 0) {
     }
 }
 
-# Function to read accounts from SSH config file
-function Get-AccountsFromSSHConfig {
+# Function to read configured GitHub accounts from ~/.gitgo/accounts.json
+function Get-GitHubAccounts {
     $accounts = Get-AccountsFromJSON
     if (-not $accounts -or $accounts.Count -eq 0) {
         Write-Host "`n❌ No GitHub accounts found in configuration." -ForegroundColor Red
@@ -289,11 +289,11 @@ function Get-GitHubToken {
     )
     
     try {
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
         $accountConfig = $accounts | Where-Object { $_.id -eq $Account }
         
         if (-not $accountConfig) {
-            throw "Account '$Account' not found in SSH config"
+            throw "Account '$Account' not found in configuration"
         }
         
         $token = [Environment]::GetEnvironmentVariable($accountConfig.tokenEnvVar, "User")
@@ -310,137 +310,6 @@ function Get-GitHubToken {
         Write-Host "`n❌ Error retrieving token: $($_.Exception.Message)"
         throw $_.Exception.Message
     }
-}
-
-# Function to generate GitHub SSH keys and configure SSH
-function New-GitHubSSHKeysAndConfig {
-    Write-Host "This app now uses HTTPS + token only. SSH setup is disabled." -ForegroundColor Yellow
-    return
-    
-    $sshDir = "$env:USERPROFILE\.ssh"
-    $configPath = "$sshDir\config"
-    $accountsConfigPath = "$sshDir\accounts.json"
-    $configEntries = @()
-    $accountsData = @()
-
-    # 🔧 Ensure .ssh directory exists
-    if (-not (Test-Path $sshDir)) {
-        Write-Host "🔧 Creating .ssh directory..." -ForegroundColor Yellow
-        New-Item -ItemType Directory -Path $sshDir | Out-Null
-    }
-
-    # 🔍 Check if ssh-keygen is available
-    if (-not (Get-Command ssh-keygen -ErrorAction SilentlyContinue)) {
-        Write-Host "❌ 'ssh-keygen' not found. Please install OpenSSH Client or restart PowerShell." -ForegroundColor Red
-        return
-    }
-
-    # 🔢 Prompt for number of accounts (max 3)
-    do {
-        $count = Read-Host "How many GitHub accounts do you want to set up? (Max: 3)" | ForEach-Object { [int]$_ }
-        if ($count -lt 1 -or $count -gt 3) {
-            Write-Host "❌ Please enter only 1, 2, or 3 for the number of accounts." -ForegroundColor Red
-        }
-    } while ($count -lt 1 -or $count -gt 3)
-
-    for ($i = 1; $i -le $count; $i++) {
-        Write-Host "`n🧑‍💻 Account #$i setup" -ForegroundColor Cyan
-        $accountType = Read-Host "Enter account name/type (e.g., personal, work, freelance)"
-        $email = Read-Host "Enter email for '$accountType' account"
-        # This username must match your actual GitHub username where repositories exist
-        $username = Read-Host "Enter your actual GitHub username for '$accountType' account"
-        $alias = "github-" + ($accountType.ToLower().Trim() -replace '[^a-z0-9]', '_')
-        $keyName = "id_ed25519_$alias"
-        $keyPath = "$sshDir\$keyName"
-        $pubKeyPath = "$keyPath.pub"
-
-        # 🚀 Generate SSH key
-        if (Test-Path $keyPath) {
-            Write-Host "⚠️ Key '$keyName' already exists. Skipping generation." -ForegroundColor DarkYellow
-        } else {
-            Write-Host "🔐 Generating SSH key for '$accountType'..." -ForegroundColor Cyan
-            ssh-keygen -t ed25519 -C "$email" -f "$keyPath" | Out-Null
-
-            if (Test-Path $keyPath) {
-                Write-Host "✅ Key generated: $keyPath" -ForegroundColor Green
-            } else {
-                Write-Host "❌ Key generation failed for '$accountType'." -ForegroundColor Red
-                continue
-            }
-        }
-
-        # 📋 Show public key
-        if (Test-Path $pubKeyPath) {
-            Write-Host "`n📋 Public key for '$accountType' (copy to GitHub):" -ForegroundColor Magenta
-            Get-Content $pubKeyPath
-
-            # 🧭 Guidance: Add the key to GitHub and copy to clipboard
-            Write-Host "`n🧭 Add this SSH key to your GitHub account:" -ForegroundColor Yellow
-            Write-Host "   1) Open: https://github.com/settings/keys"
-            Write-Host "   2) Click 'New SSH key'"
-            Write-Host "   3) Paste the key above into the 'Key' field and save"
-
-            # 📋 Automatically copy the public key to clipboard (Windows/PowerShell)
-            try {
-                Get-Content $pubKeyPath | Set-Clipboard
-                Write-Host "📌 Public key has been copied to your clipboard." -ForegroundColor Green
-            } catch {
-                Write-Host "⚠️ Could not copy to clipboard automatically. Please copy it manually." -ForegroundColor DarkYellow
-            }
-        }
-
-        # 🧩 Add SSH config entry
-        # Note: The SSH key authenticates you, but the username in git URLs must match your actual GitHub username
-        $entry = @"
-# $accountType GitHub
-Host $alias
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/$keyName
-  IdentitiesOnly yes
-"@
-        $configEntries += $entry
-
-        # 📝 Store account information for later use
-        $accountsData += [PSCustomObject]@{
-            id = $alias
-            name = $accountType
-            sshAlias = $alias
-            username = $username
-            email = $email
-            tokenEnvVar = "GITHUB_$($alias.ToUpper().Replace('-', '_'))_TOKEN"
-        }
-    }
-
-    # 🛠️ Write SSH config file
-    Write-Host "`n⚙️ Writing SSH config file..." -ForegroundColor Yellow
-    $configEntries | Set-Content -Path $configPath -Encoding UTF8
-    Write-Host "✅ SSH config saved to: $configPath" -ForegroundColor Green
-
-    # 🔍 Test SSH connections for each account
-    Write-Host "`n🔍 Testing SSH connections for each account..." -ForegroundColor Yellow
-    foreach ($account in $accountsData) {
-        Write-Host "`n🧪 Testing connection to $($account.name) account..." -ForegroundColor Cyan
-        try {
-            # Use -o StrictHostKeyChecking=no to avoid host key verification prompts
-            # SSH testing removed (migrated to token-based HTTPS). Keeping placeholder for compatibility.
-            $testResult = ""
-            if ($testResult -match "Hi .+! You've successfully authenticated") {
-                Write-Host "✅ SSH connection successful for $($account.name) account!" -ForegroundColor Green
-            } else {
-                Write-Host "⚠️ SSH connection established but authentication message unclear for $($account.name)" -ForegroundColor DarkYellow
-                Write-Host "   → This usually means the key is working but you may need to add it to GitHub" -ForegroundColor Yellow
-            }
-        } catch {
-            Write-Host "❌ SSH connection failed for $($account.name) account" -ForegroundColor Red
-            Write-Host "   → Please ensure the SSH key is added to your GitHub account" -ForegroundColor Yellow
-        }
-    }
-
-    # 💾 Save account information to JSON file
-    Write-Host "`n💾 Saving account information..." -ForegroundColor Yellow
-    $accountsData | ConvertTo-Json -Depth 3 | Set-Content -Path $accountsConfigPath -Encoding UTF8
-    Write-Host "✅ Account information saved to: $accountsConfigPath" -ForegroundColor Green
 }
 
 # Function to setup GitHub tokens securely
@@ -593,7 +462,7 @@ function Update-AccountInformation {
     Write-Host "This will update the stored username, email and local git name for your GitHub accounts."
     
     try {
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
         
         Write-Host "`n👤 Available GitHub Accounts:"
         Write-Host "──────────────────────────────────────────────"
@@ -658,7 +527,7 @@ function Remove-GitHubTokens {
     Write-Host "Tokens will be deleted from user environment variables.`n"
     
     try {
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
         
         Write-Host "👤 Available GitHub Accounts:"
         Write-Host "──────────────────────────────────────────────"
@@ -763,7 +632,7 @@ function Remove-GitHubAccounts {
     Write-Host "This will also delete associated tokens from environment variables.`n"
     
     try {
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
         
         if ($accounts.Count -eq 0) {
             Write-Host "ℹ️ No GitHub accounts found to delete."
@@ -1274,7 +1143,7 @@ function Invoke-GitCommit {
             if (-not $remoteExists) {
                 Write-Host "`n🔗 No remote configured. Let's set one up to push your changes."
                 $account = Get-ValidAccount
-                $accounts = Get-AccountsFromSSHConfig
+                $accounts = Get-GitHubAccounts
                 $accountConfig = $accounts | Where-Object { $_.id -eq $account }
                 $githubUser = $accountConfig.username
                 $gitEmail = $accountConfig.email
@@ -1662,7 +1531,7 @@ if ($skipInteractiveMenu -and $action) {
 # Function to validate and get account selection
 function Get-ValidAccount {
     try {
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
 
         Write-Host "`n👤 Available GitHub Accounts:"
         Write-Host "──────────────────────────────────────────────"
@@ -1712,7 +1581,7 @@ $tokenPlain = ""
 if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist", "tokeninfo", "changename", "commit")) {
     try {
         $account = Get-ValidAccount
-        $accounts = Get-AccountsFromSSHConfig
+        $accounts = Get-GitHubAccounts
         $accountConfig = $accounts | Where-Object { $_.id -eq $account }
 
         # Get stored username, email and local git name from account configuration
@@ -1796,7 +1665,7 @@ switch ($action) {
                     Write-Host "`n🔐 GitHub Token Information"
                     Write-Host "──────────────────────────────────────────────"
                     try {
-                        $accounts = Get-AccountsFromSSHConfig
+                        $accounts = Get-GitHubAccounts
                         for ($i = 0; $i -lt $accounts.Count; $i++) {
                             $acc = $accounts[$i]
                             $token = Get-GitHubToken -Account $acc.id
@@ -2719,7 +2588,7 @@ switch ($action) {
                 switch ($remoteChoice.ToLower()) {
                     "u" {
                         $account = Get-ValidAccount
-                        $accounts = Get-AccountsFromSSHConfig
+                        $accounts = Get-GitHubAccounts
                         $accountConfig = $accounts | Where-Object { $_.id -eq $account }
                         
                         # Get stored username from account configuration
@@ -2744,7 +2613,7 @@ switch ($action) {
                         git remote remove origin 2>$null
                         Write-Host "✅ Removed remote 'origin'."
                         $account = Get-ValidAccount
-                        $accounts = Get-AccountsFromSSHConfig
+                        $accounts = Get-GitHubAccounts
                         $accountConfig = $accounts | Where-Object { $_.id -eq $account }
                         
                         # Get stored username from account configuration
@@ -2776,7 +2645,7 @@ switch ($action) {
             $shouldAdd = Get-ValidYesNo "Add a remote now?" "y"
             if ($shouldAdd) {
                 $account = Get-ValidAccount
-                $accounts = Get-AccountsFromSSHConfig
+                $accounts = Get-GitHubAccounts
                 $accountConfig = $accounts | Where-Object { $_.id -eq $account }
                 
                 # Get stored username from account configuration

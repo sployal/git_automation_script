@@ -29,7 +29,7 @@ GitGo turns common Git and GitHub workflows into guided, menu-driven steps so yo
 - **Git** installed and on your `PATH`
 - **GitHub account(s)** with [Personal Access Tokens](https://github.com/settings/tokens)
 
-OpenSSH is **not** required for the current release; SSH key setup in the script is disabled in favor of HTTPS + tokens.
+OpenSSH is **not** required; GitGo uses HTTPS and Personal Access Tokens only.
 
 ## Quick start
 
@@ -188,7 +188,7 @@ Restart PowerShell after setup so new variables are visible, or reload your prof
 
 - **Git operations over HTTPS** use `git -c http.extraheader="Authorization: Basic …"` with your username and PAT.
 - **GitHub REST API** calls use `Authorization: Bearer <token>`.
-- Legacy SSH key generation remains in the script but is **disabled**; the current path is token-only HTTPS.
+- Authentication is **token-only over HTTPS**; account metadata is stored in `%USERPROFILE%\.gitgo\accounts.json`.
 
 ## Common workflows
 
