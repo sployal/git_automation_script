@@ -256,13 +256,11 @@ $VerbosePreference = "Continue"
 
 ## Contributing
 
-1. Fork the repo and create a branch.
-2. Change **`gitgo.ps1`** (and update this README if behavior changes).
-3. Open a pull request with a short description of the workflow you added or fixed.
+open to suggestions and improvements
 
 ## License
 
-MIT — see [LICENSE](LICENSE) if present in the repo.
+MIT — see [LICENSE](LICENSE) 
 
 ## Author
 
