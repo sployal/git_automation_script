@@ -808,17 +808,43 @@ function Test-GitHubTokenScopes {
         
         Write-Host "🔐 Token Scopes:"
         if ($scopes) {
+            $scopeDescriptions = @{
+                "repo"                          = "Full repository access (read/write)"
+                "public_repo"                   = "Public repository access only"
+                "repo:status"                   = "Commit status access"
+                "repo_deployment"               = "Repository deployment status"
+                "delete_repo"                   = "Repository deletion"
+                "user"                          = "User profile information"
+                "user:email"                    = "User email addresses"
+                "user:follow"                   = "Follow users"
+                "gist"                          = "Gist access"
+                "workflow"                      = "GitHub Actions workflows"
+                "write:packages"                = "Upload and publish packages"
+                "read:packages"                 = "Download packages"
+                "delete:packages"               = "Delete packages"
+                "admin:org"                     = "Organization administration"
+                "write:org"                     = "Organization membership (write)"
+                "read:org"                      = "Organization membership (read)"
+                "admin:public_key"              = "Manage public SSH keys"
+                "admin:repo_hook"               = "Repository webhooks (admin)"
+                "admin:org_hook"                = "Organization webhooks (admin)"
+                "admin:gpg_key"                 = "Manage GPG keys"
+                "admin:ssh_signing_key"         = "Manage SSH signing keys"
+                "notifications"                 = "Notifications"
+                "project"                       = "Classic projects"
+                "codespace"                     = "Codespaces"
+                "copilot"                       = "GitHub Copilot"
+                "write:discussion"              = "Team discussions (write)"
+                "read:discussion"               = "Team discussions (read)"
+                "write:network_configurations"  = "Hosted compute network configurations (write)"
+                "read:network_configurations"   = "Hosted compute network configurations (read)"
+            }
             foreach ($scope in $scopes) {
-                $scopeDescription = switch ($scope.Trim()) {
-                    "repo" { "Full repository access (read/write)" }
-                    "public_repo" { "Public repository access only" }
-                    "delete_repo" { "Repository deletion permissions" }
-                    "user" { "User profile information" }
-                    "user:email" { "User email addresses" }
-                    "admin:org" { "Organization administration" }
-                    "workflow" { "GitHub Actions workflows" }
-                    "gist" { "Gist access" }
-                    default { "Unknown scope" }
+                $scopeKey = $scope.Trim()
+                $scopeDescription = if ($scopeDescriptions.ContainsKey($scopeKey)) {
+                    $scopeDescriptions[$scopeKey]
+                } else {
+                    "Enabled (see token settings on GitHub for details)"
                 }
                 Write-Host "   → $scope`: $scopeDescription"
             }
@@ -2488,7 +2514,7 @@ switch ($action) {
         
         try {
             $tokenPlain = Get-GitHubToken -Account $account
-            Test-GitHubTokenScopes -Token $tokenPlain -AccountName $account
+            [void](Test-GitHubTokenScopes -Token $tokenPlain -AccountName $account)
         } catch {
             Write-Host $_.Exception.Message
         }
