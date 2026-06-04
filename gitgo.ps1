@@ -313,7 +313,7 @@ function Get-GitHubToken {
 }
 
 # Function to generate GitHub SSH keys and configure SSH
-function Generate-GitHubSSHKeysAndConfig {
+function New-GitHubSSHKeysAndConfig {
     Write-Host "This app now uses HTTPS + token only. SSH setup is disabled." -ForegroundColor Yellow
     return
     
@@ -1031,18 +1031,18 @@ function Get-ValidYesNo {
     
     do {
         if ($DefaultValue) {
-            $input = Read-Host "$Prompt (y/n, default: $DefaultValue)"
-            if ([string]::IsNullOrWhiteSpace($input)) {
-                $input = $DefaultValue
+            $userResponse = Read-Host "$Prompt (y/n, default: $DefaultValue)"
+            if ([string]::IsNullOrWhiteSpace($userResponse)) {
+                $userResponse = $DefaultValue
             }
         } else {
-            $input = Read-Host "$Prompt (y/n)"
+            $userResponse = Read-Host "$Prompt (y/n)"
         }
         
-        $input = $input.ToLower().Trim()
-        if ($input -eq "y" -or $input -eq "yes") {
+        $userResponse = $userResponse.ToLower().Trim()
+        if ($userResponse -eq "y" -or $userResponse -eq "yes") {
             return $true
-        } elseif ($input -eq "n" -or $input -eq "no") {
+        } elseif ($userResponse -eq "n" -or $userResponse -eq "no") {
             return $false
         } else {
             Write-Host "`n❌ Invalid input. Please enter 'y' for yes or 'n' for no."
@@ -1278,7 +1278,6 @@ function Invoke-GitCommit {
                 $accountConfig = $accounts | Where-Object { $_.id -eq $account }
                 $githubUser = $accountConfig.username
                 $gitEmail = $accountConfig.email
-                $sshAlias = $null
                 if ([string]::IsNullOrWhiteSpace($githubUser) -or [string]::IsNullOrWhiteSpace($gitEmail)) {
                     Write-Host "`n⚠️ Username or email not found for $($accountConfig.name) account." -ForegroundColor DarkYellow
                     if ([string]::IsNullOrWhiteSpace($githubUser)) {
@@ -1611,13 +1610,13 @@ if ($skipInteractiveMenu -and $action) {
 
     # Prompt until valid action or 'q' is entered
     do {
-        $input = Read-Host "`nEnter your action"
-        if ($input -eq "q") {
+        $userAction = Read-Host "`nEnter your action"
+        if ($userAction -eq "q") {
             Write-Host "`n👋 Exiting GitGo. Goodbye!"
             exit
-        } elseif (($validActions -contains $input) -or ($numberedActions.ContainsKey($input))) {
+        } elseif (($validActions -contains $userAction) -or ($numberedActions.ContainsKey($userAction))) {
             # Resolve to action name if a number was provided
-            $resolvedAction = if ($numberedActions.ContainsKey($input)) { $numberedActions[$input] } else { $input }
+            $resolvedAction = if ($numberedActions.ContainsKey($userAction)) { $numberedActions[$userAction] } else { $userAction }
             if ($resolvedAction -eq "help") {
                 # Inline help that doesn't exit; re-display actions and continue loop
                 Write-Host "`n📘 GitGo Help Menu"
@@ -1705,7 +1704,6 @@ function Get-ValidVisibility {
 $gitName = ""
 $gitEmail = ""
 $githubUser = ""
-$sshAlias = ""
 $repoName = ""
 $remoteUrl = ""
 $tokenPlain = ""
@@ -1721,7 +1719,6 @@ if ($action -in @("clone", "push", "pull", "addremote", "delremote", "remotelist
         $githubUser = $accountConfig.username
         $gitEmail = $accountConfig.email
         $gitName = if ($accountConfig.PSObject.Properties.Name -contains 'gitName' -and $accountConfig.gitName) { $accountConfig.gitName } else { $githubUser }
-        $sshAlias = $null
 
         # If username or email is not stored, prompt user to enter them
         if ([string]::IsNullOrWhiteSpace($githubUser) -or [string]::IsNullOrWhiteSpace($gitEmail)) {
@@ -2727,7 +2724,6 @@ switch ($action) {
                         
                         # Get stored username from account configuration
                         $githubUser = $accountConfig.username
-                        $sshAlias = $null
                         
                         # If username is not stored, prompt user to enter it
                         if ([string]::IsNullOrWhiteSpace($githubUser)) {
@@ -2753,7 +2749,6 @@ switch ($action) {
                         
                         # Get stored username from account configuration
                         $githubUser = $accountConfig.username
-                        $sshAlias = $null
                         
                         # If username is not stored, prompt user to enter it
                         if ([string]::IsNullOrWhiteSpace($githubUser)) {
@@ -2786,7 +2781,6 @@ switch ($action) {
                 
                 # Get stored username from account configuration
                 $githubUser = $accountConfig.username
-                $sshAlias = $null
                 
                 # If username is not stored, prompt user to enter it
                 if ([string]::IsNullOrWhiteSpace($githubUser)) {
@@ -2863,7 +2857,7 @@ switch ($action) {
                 # Check if new name is already taken
                 $checkNewUrl = "https://api.github.com/repos/$githubUser/$newRepoName"
                 try {
-                    $existingNewRepo = Invoke-RestMethod -Uri $checkNewUrl -Method Get -Headers $headers -ErrorAction Stop -TimeoutSec 10
+                    $null = Invoke-RestMethod -Uri $checkNewUrl -Method Get -Headers $headers -ErrorAction Stop -TimeoutSec 10
                     Write-Host "`n🚫 A repository named '$newRepoName' already exists under '$githubUser'."
                     Write-Host "   → Please choose a different name."
                     $validNewName = $false
