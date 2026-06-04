@@ -754,6 +754,22 @@ function Remove-GitHubAccounts {
     }
 }
 
+# Unwrap Invoke-WebRequest header values (often String[] or nested arrays)
+function Get-WebHeaderValue {
+    param(
+        [object]$Headers,
+        [string]$Name
+    )
+    if (-not $Headers -or -not $Name) { return $null }
+    $value = $Headers[$Name]
+    if ($null -eq $value) { return $null }
+    while ($value -is [System.Array]) {
+        if ($value.Count -eq 0) { return $null }
+        $value = $value[0]
+    }
+    return [string]$value
+}
+
 # Function to test token validity and get scopes
 function Test-GitHubTokenScopes {
     param(
@@ -771,15 +787,24 @@ function Test-GitHubTokenScopes {
         # Get user info and token scopes
         $response = Invoke-WebRequest -Uri "https://api.github.com/user" -Method Get -Headers $headers -TimeoutSec 10
         $userInfo = $response.Content | ConvertFrom-Json
-        $scopes = $response.Headers['X-OAuth-Scopes'] -split ', ' | Where-Object { $_ }
+        $scopesHeader = Get-WebHeaderValue -Headers $response.Headers -Name 'X-OAuth-Scopes'
+        $scopes = if ($scopesHeader) { $scopesHeader -split ', ' | Where-Object { $_ } } else { @() }
+        $rateRemaining = Get-WebHeaderValue -Headers $response.Headers -Name 'X-RateLimit-Remaining'
+        $rateLimit = Get-WebHeaderValue -Headers $response.Headers -Name 'X-RateLimit-Limit'
+        $rateReset = Get-WebHeaderValue -Headers $response.Headers -Name 'X-RateLimit-Reset'
         
         Write-Host "✅ $AccountName token is valid"
         Write-Host "   → User: $($userInfo.login)"
         Write-Host "   → Name: $($userInfo.name)"
         Write-Host "   → Email: $($userInfo.email)"
         Write-Host "   → Account Type: $($userInfo.type)"
-        Write-Host "   → Rate Limit: $($response.Headers['X-RateLimit-Remaining'])/$($response.Headers['X-RateLimit-Limit']) remaining"
-        Write-Host "   → Reset Time: $(([DateTimeOffset]::FromUnixTimeSeconds($response.Headers['X-RateLimit-Reset'])).ToString('yyyy-MM-dd HH:mm:ss'))"
+        Write-Host "   → Rate Limit: $rateRemaining/$rateLimit remaining"
+        if ($rateReset) {
+            $resetSeconds = 0L
+            if ([long]::TryParse($rateReset, [ref]$resetSeconds)) {
+                Write-Host "   → Reset Time: $(([DateTimeOffset]::FromUnixTimeSeconds($resetSeconds)).ToString('yyyy-MM-dd HH:mm:ss'))"
+            }
+        }
         
         Write-Host "🔐 Token Scopes:"
         if ($scopes) {
