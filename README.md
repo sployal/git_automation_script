@@ -8,7 +8,7 @@
 
 ## Current version
 
-**`gitgo.ps1` is the latest and only supported entry point** for this project (~3,000 lines). Earlier scripts (`gitgov3.ps1`, `new.ps1`, and others) are legacy; use `gitgo.ps1` for all installs and documentation below.
+**`gitgo.ps1` is the latest and only supported entry point** for this project. Earlier scripts (`gitgov3.ps1`, `new.ps1`, and others) are legacy; use `gitgo.ps1` for all installs and documentation below.
 
 ## What is GitGo?
 
