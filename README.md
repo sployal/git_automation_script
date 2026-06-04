@@ -1,408 +1,274 @@
-# 🚀 GitGo - PowerShell Git Workflow Automation
+# GitGo — PowerShell Git & GitHub Workflow
 
-> **The ultimate PowerShell script for streamlined Git and GitHub workflow management**
+> Interactive PowerShell automation for everyday Git and GitHub tasks on Windows.
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-7+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![Git](https://img.shields.io/badge/Git-Required-green.svg)](https://git-scm.com/)
 [![GitHub](https://img.shields.io/badge/GitHub-API-blue.svg)](https://github.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 📖 What is GitGo?
+## Current version
 
-**GitGo** is a comprehensive PowerShell automation script that transforms your Git and GitHub workflow from complex command sequences into simple, interactive actions. It's designed for developers who want to focus on coding rather than remembering Git commands.
+**`gitgo.ps1` is the latest and only supported entry point** for this project (~3,000 lines). Earlier scripts (`gitgov3.ps1`, `new.ps1`, and others) are legacy; use `gitgo.ps1` for all installs and documentation below.
 
-### ✨ Key Features
+## What is GitGo?
 
-- 🔐 **Multi-Account GitHub Management** - Handle personal, work, and freelance accounts seamlessly
-- 🚀 **One-Click Repository Operations** - Clone, push, pull, commit, and manage repos with minimal effort
-- 🛡️ **Secure Token Management** - Environment-based token storage with automatic scope validation
-- 🌿 **Advanced Branch Management** - Create, switch, and delete branches with safety checks
-- 📊 **Comprehensive Repository Status** - Real-time insights into your Git repositories
-- 🔄 **Smart Remote Management** - Automatic remote configuration and URL updates
-- 📝 **Interactive Commit Workflow** - Guided commit creation with templates and validation
+GitGo turns common Git and GitHub workflows into guided, menu-driven steps so you spend less time remembering flags and more time shipping code. Run it interactively or invoke a single action from the command line.
 
-## 🎯 Why GitGo is Important
+### Highlights
 
-### For Individual Developers
-- **Time Savings**: Reduce Git workflow time by 70% through automation
-- **Error Prevention**: Eliminate common Git mistakes with guided workflows
-- **Consistency**: Standardize Git practices across all your projects
-- **Learning Tool**: Understand Git concepts through interactive guidance
+- **Multi-account GitHub** — Up to three accounts (personal, work, freelance, etc.) with per-account tokens and stored identity
+- **HTTPS + Personal Access Tokens** — Clone, push, and API calls use tokens via `http.extraheader` (no credential helper prompts)
+- **Repository lifecycle** — Clone, create (`addremote`), list, delete, rename, and inspect status
+- **Guided commits** — Stage (including `git add -p`), conventional-commit templates, optional push
+- **Branch & remote tools** — List/create/switch/delete branches; view or change `origin`
+- **Secure setup** — Tokens in user environment variables; account metadata in `%USERPROFILE%\.gitgo\`
 
-### For Teams
-- **Standardization**: Ensure consistent Git practices across team members
-- **Onboarding**: New developers can contribute immediately without Git expertise
-- **Code Quality**: Enforce proper commit messages and workflow patterns
-- **Collaboration**: Streamline repository management and sharing
+## Requirements
 
-### For Organizations
-- **Productivity**: Increase development velocity through workflow optimization
-- **Compliance**: Maintain audit trails and proper repository management
-- **Security**: Secure token management and access control
-- **Scalability**: Handle multiple accounts and repositories efficiently
+- **PowerShell 7+** (recommended) or Windows PowerShell 5.1
+- **Git** installed and on your `PATH`
+- **GitHub account(s)** with [Personal Access Tokens](https://github.com/settings/tokens)
 
-## 🚀 Quick Start
+OpenSSH is **not** required for the current release; SSH key setup in the script is disabled in favor of HTTPS + tokens.
 
-### Prerequisites
+## Quick start
 
-- **PowerShell 7+** (recommended) or PowerShell 5.1
-- **Git** installed and configured
-- **GitHub account(s)** with Personal Access Tokens
-- **OpenSSH Client** (for SSH key generation)
-
-### Installation
-
-1. **Clone or Download**
-   ```powershell
-   # Option 1: Clone the repository
-   git clone https://github.com/yourusername/gitgo.git
-   cd gitgo
-   
-   # Option 2: Download the script directly
-   Invoke-WebRequest -Uri "https://raw.githubusercontent.com/yourusername/gitgo/main/new.ps1" -OutFile "gitgo.ps1"
-   ```
-
-2. **Make Executable** (if needed)
-   ```powershell
-   # Set execution policy (run as Administrator if needed)
-   Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-   ```
-
-3. **Add to PATH (Optional but Recommended)**
-   ```powershell
-   # Automatically add GitGo folder to PATH
-   .\new.ps1 --add-to-path
-   
-   # Or manually add to PATH (see manual instructions below)
-   ```
-
-4. **Run GitGo**
-   ```powershell
-   # If added to PATH, run from anywhere:
-   gitgo
-   
-   # Or run from the folder:
-   .\new.ps1
-   
-   # Or run with help
-   .\new.ps1 --help
-   ```
-
-> **💡 Pro Tip**: After adding GitGo to your PATH, you can run `gitgo` from any terminal location without navigating to the script folder first!
-
-## 🔧 PATH Management
-
-### Automatic PATH Addition
-
-GitGo includes a built-in function to automatically add its folder to your Windows PATH environment variable:
+### 1. Get the script
 
 ```powershell
-# Add GitGo folder to PATH automatically
-.\new.ps1 --add-to-path
-
-# This will:
-# 1. Detect the current GitGo folder location
-# 2. Add it to your user PATH environment variable
-# 3. Verify the addition was successful
-# 4. Provide instructions for immediate use
+# Clone this repo, or copy gitgo.ps1 into a folder on your machine
+cd "C:\path\to\powershell"   # folder containing gitgo.ps1
 ```
 
-### Manual PATH Addition
-
-If you prefer to manually manage your PATH, here are the steps:
-
-#### Option 1: Using Windows Settings (Recommended)
-1. Press `Win + R`, type `sysdm.cpl`, press Enter
-2. Click "Environment Variables" button
-3. Under "User variables", find and select "Path"
-4. Click "Edit" → "New"
-5. Add the full path to your GitGo folder (e.g., `C:\Users\YourName\Utilities\my code\powershell`)
-6. Click "OK" on all dialogs
-
-#### Option 2: Using PowerShell (Administrator)
-```powershell
-# Get current GitGo folder path
-$gitgoPath = Get-Location
-
-# Add to user PATH
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$gitgoPath*") {
-    $newPath = "$userPath;$gitgoPath"
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Host "✅ GitGo folder added to PATH: $gitgoPath"
-} else {
-    Write-Host "ℹ️ GitGo folder already in PATH"
-}
-```
-
-#### Option 3: Using Command Prompt (Administrator)
-```cmd
-# Add to user PATH
-setx PATH "%PATH%;C:\Users\YourName\Utilities\my code\powershell" /M
-```
-
-### Verify PATH Addition
-
-After adding to PATH, verify it worked:
+### 2. Allow script execution (once)
 
 ```powershell
-# Check if GitGo folder is in PATH
-$env:PATH -split ';' | Where-Object { $_ -like "*gitgo*" -or $_ -like "*powershell*" }
-
-# Test running gitgo from anywhere
-gitgo --help
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-### Remove from PATH (if needed)
+### 3. First-time setup
 
 ```powershell
-# Remove GitGo folder from PATH
-.\new.ps1 --remove-from-path
-
-# Or manually remove using Windows Settings
-# Follow the same steps as adding, but delete the entry instead
+.\gitgo.ps1 setup
+# Choose option 1 — configure accounts and tokens
 ```
 
-## ⚙️ Initial Setup
+Create tokens at https://github.com/settings/tokens with scopes: **`repo`**, **`delete_repo`**, **`user`**.
 
-### First-Time Configuration
-
-1. **Launch Setup**
-   ```powershell
-   .\new.ps1 setup
-   ```
-
-2. **Configure SSH Keys** (Option 1)
-   - Generate SSH keys for each GitHub account
-   - Add public keys to GitHub
-   - Configure SSH aliases automatically
-
-3. **Configure GitHub Tokens** (Option 2)
-   - Create Personal Access Tokens with required scopes
-   - Store tokens securely as environment variables
-   - Validate token permissions automatically
-
-### Required GitHub Token Scopes
-
-Your Personal Access Token needs these scopes:
-- `repo` - Full repository access (read/write)
-- `delete_repo` - Repository deletion permissions
-- `user` - User profile information
-
-## 📚 How to Use GitGo
-
-### Basic Usage
+### 4. Run GitGo
 
 ```powershell
-# Launch interactive menu
-.\new.ps1
+.\gitgo.ps1              # interactive menu
+.\gitgo.ps1 --help       # full help, then exit
+.\gitgo.ps1 push         # run one action
+.\gitgo.ps1 2            # same as push (by action number)
+```
 
-# Run specific actions
-.\new.ps1 clone
-.\new.ps1 push
-.\new.ps1 commit
-.\new.ps1 status
+### 5. Optional: add to PATH
 
-# If added to PATH, run from anywhere:
+```powershell
+.\gitgo.ps1 --add-to-path
+```
+
+Restart the terminal, then run `gitgo` from any directory (Windows resolves `gitgo.ps1` when the folder is on `PATH`).
+
+Remove from PATH:
+
+```powershell
+.\gitgo.ps1 --remove-from-path
+```
+
+## Usage
+
+### Interactive mode
+
+```powershell
+.\gitgo.ps1
+# or, after PATH setup:
 gitgo
+```
+
+You’ll see all actions in a numbered grid. Enter an action **name**, **number**, or `q` to quit. First run: use **`setup`** (action **13**) to add accounts and tokens.
+
+### Direct actions
+
+| # | Action | Description |
+|---|--------|-------------|
+| 1 | `clone` | Clone from your account (by repo name) or from any GitHub HTTPS/SSH URL |
+| 2 | `push` | Push committed changes to `origin` |
+| 3 | `pull` | Pull from remote default branch |
+| 4 | `adduser` | Set `user.name` and `user.email` for the current repo |
+| 5 | `showuser` | Show current Git identity |
+| 6 | `addremote` | Create a GitHub repo (README, visibility) and optionally clone |
+| 7 | `remotelist` | List repositories for the selected account |
+| 8 | `delremote` | Delete a GitHub repo (with confirmation) |
+| 9 | `status` | Detailed repo status (branch, remotes, changes) |
+| 10 | `commit` | Stage, commit (templates/amend), optional push |
+| 11 | `history` | Commit history with summary stats |
+| 12 | `tokeninfo` | Show token scopes for the selected account |
+| 13 | `setup` | Accounts, tokens, PATH, updates, deletion |
+| 14 | `branch` | List, create, switch, or delete branches |
+| 15 | `remotem` | View or change remote URL for current repo |
+| 16 | `changename` | Rename a repository on GitHub |
+| 17 | `help` | Inline help (interactive menu only) |
+
+Examples:
+
+```powershell
 gitgo clone
-gitgo push
 gitgo commit
-gitgo status
+gitgo 10          # commit by number
+gitgo tokeninfo
+gitgo setup
 ```
 
-### Available Actions
+### CLI flags
 
-| Action | Description | Use Case |
-|--------|-------------|----------|
-| **clone** | Clone repositories with auto-configuration | Starting new projects |
-| **push** | Push changes with smart remote detection | Deploying code |
-| **pull** | Pull latest changes with conflict handling | Updating local code |
-| **commit** | Interactive commit creation with templates | Version control |
-| **addremote** | Create GitHub repos with auto-clone | New project setup |
-| **status** | Comprehensive repository information | Project overview |
-| **branch** | Branch management (create/switch/delete) | Feature development |
-| **history** | View commit history with statistics | Code review |
-| **setup** | Configure accounts and tokens | Initial setup |
+| Flag | Purpose |
+|------|---------|
+| `--help` | Print actions and usage, then exit |
+| `--add-to-path` | Append this script’s folder to the user `PATH` |
+| `--remove-from-path` | Remove this script’s folder from the user `PATH` |
 
-### Advanced Workflows
+## Setup menu (`gitgo setup`)
 
-#### Multi-Account Repository Management
-```powershell
-# Switch between personal and work accounts
-.\new.ps1 setup  # Configure multiple accounts
-.\new.ps1 clone  # Choose account for cloning
-.\new.ps1 push   # Use account-specific credentials
+| Option | What it does |
+|--------|----------------|
+| 1 | Add/update GitHub accounts and store PATs |
+| 2 | Show token info and validate scopes |
+| 3 | Update stored username, email, and local Git display name |
+| 4 | Delete one or more configured accounts |
+| 5 | Add GitGo folder to Windows PATH |
+| 6 | Remove GitGo folder from PATH |
+| 7 | Exit |
+
+During token setup you can configure up to **three accounts** per machine. Each account gets:
+
+- A stable **id** (e.g. `github-personal`)
+- Display **name**, GitHub **username**, **email**, optional **gitName**
+- A user environment variable for the token
+
+## Configuration
+
+### Account storage
+
+```
+%USERPROFILE%\.gitgo\accounts.json
 ```
 
-#### Automated Project Setup
-```powershell
-# Create new project from scratch
-.\new.ps1 addremote  # Create GitHub repo
-# Automatically clones and configures local repo
-# Sets up Git identity and remote origin
-```
-
-#### Smart Commit Workflow
-```powershell
-# Interactive commit with templates
-.\new.ps1 commit
-# Choose files to stage
-# Select commit template (feat:, fix:, docs:, etc.)
-# Optional auto-push
-```
-
-## 🔧 Configuration
-
-### SSH Configuration
-
-GitGo automatically generates and configures SSH keys:
-
-```bash
-# Generated SSH config structure
-Host github-personal
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/id_ed25519_github-personal
-  IdentitiesOnly yes
-
-Host github-work
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/id_ed25519_github-work
-  IdentitiesOnly yes
-```
-
-### Environment Variables
-
-Tokens are stored securely as user environment variables:
-
-```powershell
-# Automatic environment variable naming
-$env:GITHUB_GITHUB_PERSONAL_TOKEN    # Personal account token
-$env:GITHUB_GITHUB_WORK_TOKEN        # Work account token
-$env:GITHUB_GITHUB_FREELANCE_TOKEN   # Freelance account token
-```
-
-### Account Configuration
-
-Account information is stored in `~/.ssh/accounts.json`:
+Example structure:
 
 ```json
 [
   {
     "id": "github-personal",
-    "name": "Personal",
-    "sshAlias": "github-personal",
+    "name": "personal",
     "username": "yourusername",
-    "email": "your.email@example.com",
+    "email": "you@example.com",
+    "gitName": "Your Name",
     "tokenEnvVar": "GITHUB_GITHUB_PERSONAL_TOKEN"
   }
 ]
 ```
 
-## 🛠️ Troubleshooting
+The `tokenEnvVar` name is derived from the account id: `GITHUB_<ID_UPPERCASE_WITH_UNDERSCORES>_TOKEN`.
 
-### Common Issues
+### Environment variables
 
-#### SSH Connection Failed
+Tokens are stored as **User** environment variables (not in the JSON file):
+
 ```powershell
-# Verify SSH key is added to GitHub
-.\new.ps1 setup  # Reconfigure SSH keys
-# Check SSH connection
-ssh -T git@github-personal
+# Example after setting up a "personal" account (id: github-personal)
+$env:GITHUB_GITHUB_PERSONAL_TOKEN
 ```
 
-#### Token Authentication Error
+Restart PowerShell after setup so new variables are visible, or reload your profile.
+
+### Authentication model
+
+- **Git operations over HTTPS** use `git -c http.extraheader="Authorization: Basic …"` with your username and PAT.
+- **GitHub REST API** calls use `Authorization: Bearer <token>`.
+- Legacy SSH key generation remains in the script but is **disabled**; the current path is token-only HTTPS.
+
+## Common workflows
+
+### New project on GitHub
+
 ```powershell
-# Verify token scopes
-.\new.ps1 tokeninfo
-# Reconfigure tokens if needed
-.\new.ps1 setup
+gitgo addremote    # create repo, README, clone locally, set identity
 ```
 
-#### Repository Not Found
+### Day-to-day commit and push
+
 ```powershell
-# Check account configuration
-.\new.ps1 status
-# Verify remote URL
-git remote -v
-# Update remote if needed
-.\new.ps1 remotem
+cd your-repo
+gitgo commit       # stage → message (or template) → optional push
+# or
+gitgo push
 ```
 
-### Debug Mode
-
-Enable verbose output for troubleshooting:
+### Multiple GitHub identities
 
 ```powershell
-# Set PowerShell preference for detailed output
+gitgo setup        # add personal + work accounts (max 3 total)
+gitgo clone        # pick account when prompted
+gitgo push         # same account picker
+```
+
+### Check token permissions
+
+```powershell
+gitgo tokeninfo
+# or: gitgo setup → option 2
+```
+
+## Troubleshooting
+
+| Problem | What to try |
+|---------|-------------|
+| No accounts / missing config | `gitgo setup` → option 1 |
+| Token not found | Re-run setup; confirm env var name in `accounts.json`; restart terminal |
+| 404 on clone | Verify repo name and GitHub username for the selected account |
+| Auth failed on push | `gitgo tokeninfo`; ensure `repo` scope on the PAT |
+| Script won’t run | `Get-ExecutionPolicy`; use `RemoteSigned` for CurrentUser |
+
+Verbose Git output:
+
+```powershell
 $VerbosePreference = "Continue"
-.\new.ps1
+.\gitgo.ps1
 ```
 
-## 🔒 Security Features
+## Security notes
 
-- **Secure Token Storage**: Tokens stored as user environment variables
-- **SSH Key Management**: Automatic SSH key generation and configuration
-- **Scope Validation**: Automatic token permission verification
-- **Account Isolation**: Separate credentials for different GitHub accounts
-- **No Plain Text Storage**: Sensitive data never written to disk
+- PATs live in **user** environment variables, not in `accounts.json`.
+- Tokens are read with `-AsSecureString` during setup and cleared from memory after use.
+- Setup can validate token scopes via the GitHub API.
+- Deleting repos or force-pushing always goes through confirmation prompts where applicable.
 
-## 🚀 Performance Benefits
+## Project layout
 
-- **70% Faster Workflow**: Automated Git operations reduce manual steps
-- **Error Reduction**: Guided workflows prevent common Git mistakes
-- **Batch Operations**: Handle multiple repositories efficiently
-- **Smart Caching**: Account and repository information cached locally
+| File | Role |
+|------|------|
+| **`gitgo.ps1`** | Current GitGo implementation (use this) |
+| `README.md` | This document |
+| `gitgov1.py`, `gitgo1.ps1`, etc. | Older experiments — not maintained |
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! Here's how you can help:
+1. Fork the repo and create a branch.
+2. Change **`gitgo.ps1`** (and update this README if behavior changes).
+3. Open a pull request with a short description of the workflow you added or fixed.
 
-1. **Fork the repository**
-2. **Create a feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit your changes** (`git commit -m 'Add amazing feature'`)
-4. **Push to the branch** (`git push origin feature/amazing-feature`)
-5. **Open a Pull Request**
+## License
 
-### Development Setup
+MIT — see [LICENSE](LICENSE) if present in the repo.
 
-```powershell
-# Clone the repository
-git clone https://github.com/yourusername/gitgo.git
-cd gitgo
+## Author
 
-# Install development dependencies
-# (Currently none required)
-
-# Run tests
-# (Test framework to be implemented)
-```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Git Community** - For the amazing version control system
-- **PowerShell Team** - For the powerful automation platform
-- **GitHub** - For the comprehensive API and platform
-- **Open Source Contributors** - For inspiration and feedback
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/yourusername/gitgo/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/gitgo/discussions)
-- **Wiki**: [Documentation Wiki](https://github.com/yourusername/gitgo/wiki)
-
-## 🌟 Star History
-
-If you find GitGo helpful, please consider giving it a star! ⭐
+**David Muigai** —  Kenya  
+Workflow automation & terminal tooling
 
 ---
 
-**Made with ❤️ by [David Muigai](https://github.com/yourusername) - Nairobi, Kenya**
-
-*Workflow architect & terminal automation enthusiast*
+If GitGo saves you time, consider starring the repo.
